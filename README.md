@@ -26,9 +26,17 @@ pip install -r requirements.txt
 Evaluation is done using **GroupKFold** split by **Brand + Model** to reduce leakage.
 
 **Cross-validation results (Price prediction):**
-- **MAE:** ~ A$8K–A$12K  
-- **RMSE:** ~ A$10K–A$18K  
-- **MAPE:** ~ 23%–34%  
-- **R²:** ~ 0.62–0.75  
+- **MAE:** ~ A$2.5K–A$4K  
+- **RMSE:** ~ A$5K–A$15K  
+- **MAPE:** ~ 8%-14%  
+- **R²:** ~ 0.8-0.9  
 
-✅ The model achieves ~**0.70 R² on average**, indicating strong predictive power for used car pricing.
+✅ The model achieves ~**0.86 R² on average**, indicating strong pricing predictive power for pre-owned cars.
+
+
+<img width="1048" height="445" alt="image" src="https://github.com/user-attachments/assets/75c91c07-18d4-4ca1-b461-3c21e6341f15" />
+
+
+<img width="1051" height="447" alt="Screenshot 2026-01-26 235222" src="https://github.com/user-attachments/assets/8ab303f2-a39f-4bb4-a72c-8a127a9649cc" />
+
+
