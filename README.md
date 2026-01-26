@@ -10,7 +10,7 @@ This project predicts preowned car prices using a **retention-based model**:
 - `models/` saved model + lookup tables
 - `streamlit_app.py` Streamlit UI
 
-## Setup
+## Setup (Local)
 ```bash
 python -m venv .venv
 # Windows:
@@ -37,8 +37,8 @@ Evaluation is done using **GroupKFold** split by **Brand + Model** to reduce lea
 ## 📸 Screenshots
 
 ### Model Performance (CV Metrics)
-<img width="1048" alt="Model CV Metrics" src="https://github.com/user-attachments/assets/75c91c07-18d4-4ca1-b461-3c21e6341f15" />
+![CV Metrics](https://github.com/user-attachments/assets/75c91c07-18d4-4ca1-b461-3c21e6341f15)
 
 ### Sample Prediction Validation (Actual vs Predicted)
-<img width="1051" alt="Sample Actual vs Predicted" src="https://github.com/user-attachments/assets/8ab303f2-a39f-4bb4-a72c-8a127a9649cc" />
+![Actual vs Predicted](https://github.com/user-attachments/assets/8ab303f2-a39f-4bb4-a72c-8a127a9649cc)
 
