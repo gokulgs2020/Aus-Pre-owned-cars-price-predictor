@@ -37,6 +37,6 @@ Evaluation is done using **GroupKFold** split by **Brand + Model** to reduce lea
 ## 📸 Screenshots
 
 ### Sample Prediction Validation (Actual vs Predicted)
-![Actual vs Predicted](assets/screenshot1.png)
-![Actual vs Predicted](assets/screenshot2.png)
+![Actual vs Predicted](assets/screenshot_1.png)
+![Actual vs Predicted](assets/screenshot_2.png)
 
