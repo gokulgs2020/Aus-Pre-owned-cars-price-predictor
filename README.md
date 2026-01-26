@@ -23,6 +23,7 @@ pip install -r requirements.txt
 
 ## ✅ Model Performance (5-Fold GroupKFold CV)
 
+
 Evaluation is done using **GroupKFold** split by **Brand + Model** to reduce leakage.
 
 **Cross-validation results (Price prediction):**
@@ -33,10 +34,11 @@ Evaluation is done using **GroupKFold** split by **Brand + Model** to reduce lea
 
 ✅ The model achieves ~**0.86 R² on average**, indicating strong pricing predictive power for pre-owned cars.
 
+## 📸 Screenshots
 
-<img width="1048" height="445" alt="image" src="https://github.com/user-attachments/assets/75c91c07-18d4-4ca1-b461-3c21e6341f15" />
+### Model Performance (CV Metrics)
+<img width="1048" alt="Model CV Metrics" src="https://github.com/user-attachments/assets/75c91c07-18d4-4ca1-b461-3c21e6341f15" />
 
-
-<img width="1051" height="447" alt="Screenshot 2026-01-26 235222" src="https://github.com/user-attachments/assets/8ab303f2-a39f-4bb4-a72c-8a127a9649cc" />
-
+### Sample Prediction Validation (Actual vs Predicted)
+<img width="1051" alt="Sample Actual vs Predicted" src="https://github.com/user-attachments/assets/8ab303f2-a39f-4bb4-a72c-8a127a9649cc" />
 
