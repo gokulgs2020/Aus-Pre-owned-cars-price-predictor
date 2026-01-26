@@ -37,6 +37,6 @@ Evaluation is done using **GroupKFold** split by **Brand + Model** to reduce lea
 ## 📸 Screenshots
 
 ### Sample Prediction Validation (Actual vs Predicted)
-![Actual vs Predicted](assets/screenshot_1.png)
-![Actual vs Predicted](assets/screenshot_2.png)
+![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_1.png)
+![Actual vs Predicted 2](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_2.png)
 
