@@ -1,0 +1,15 @@
+# data
+data/raw/
+*.csv
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# notebooks
+.ipynb_checkpoints/
+
+# models (keep tracked if you want; otherwise ignore)
+# models/
