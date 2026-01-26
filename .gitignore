@@ -13,3 +13,7 @@ venv/
 
 # models (keep tracked if you want; otherwise ignore)
 # models/
+
+# Allow model artifacts (needed for Streamlit Cloud)
+!models/*.pkl
+!models/*.csv
