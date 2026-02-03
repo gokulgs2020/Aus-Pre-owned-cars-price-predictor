@@ -11,7 +11,8 @@ def load_artifacts():
 
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
-    return pipe, feature_cols, bm, b
+    brand_model_lookup = pd.read_csv("models/brand_model_lookup_50.csv")
+    return pipe, feature_cols, bm, b,brand_model_lookup
 
 
 def lookup_new_price(brand: str, model: str, bm: pd.DataFrame, b: pd.DataFrame) -> float:
@@ -55,7 +56,7 @@ def make_features(
 st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
 st.title("🚗 Preowned Car Price Estimator (AU)")
 
-pipe, feature_cols, bm, b = load_artifacts()
+pipe, feature_cols, bm, b,brand_model_lookup = load_artifacts()
 
 with st.sidebar:
     st.header("Vehicle details")
@@ -63,10 +64,10 @@ with st.sidebar:
     #brand = st.text_input("Brand", value="Toyota")
     #model = st.text_input("Model", value="Camry")
 
-    brands = sorted(bm["Brand"].dropna().unique().tolist())
+    brands = sorted(brand_model_lookup["Brand"].dropna().unique().tolist())
     brand = st.selectbox("Brand", brands)
 
-    models = sorted(bm[bm["Brand"] == brand]["Model"].dropna().unique().tolist())
+    models = sorted(brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"].dropna().unique().tolist())
     model = st.selectbox("Model", models)
 
     used_or_new = "USED"
@@ -82,7 +83,7 @@ with st.sidebar:
 
     #fuel_consumption = st.number_input("FuelConsumption (L/100km)",min_value=0.0, max_value=30.0, value=7.5, step=0.1)
     #cylinders = st.number_input("CylindersinEngine", min_value=0, max_value=16, value=4, step=1)
-    seats = st.slider("Seats", [2,5,6,7],index=1)
+    seats = st.selectbox("Seats", [2,5,6,7],index=1)
 
     fuel_type = st.selectbox(
     "FuelType",
