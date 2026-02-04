@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import joblib
+import datetime as datetime
 
 
 @st.cache_resource
@@ -15,6 +16,13 @@ def load_artifacts():
     seat_defaults = pd.read_csv("models/brand_model_seat_default.csv")
     multi_seat_lookup = pd.read_csv("models/multi_seat_models.csv")
     return pipe, feature_cols, bm, b,brand_model_lookup,seat_defaults,multi_seat_lookup
+
+    # keep only multi-seat models that exist in dropdown lookup
+    multi_seat_lookup = multi_seat_lookup.merge(
+    brand_model_lookup,
+    on=["Brand", "Model"],
+    how="inner"
+    )
 
 
 def lookup_new_price(brand: str, model: str, bm: pd.DataFrame, b: pd.DataFrame) -> float:
@@ -80,14 +88,14 @@ with st.sidebar:
     #fuel_type = st.selectbox("FuelType", ["Gasoline", "Diesel", "Hybrid", "Electric"], index=0)
 
     year = st.number_input("Year of Manufacture", min_value=2000, max_value=2026, value=2020, step=1)
-    age=2026-year
+    age=datetime.now().year-year
     km = st.number_input("Kilometres", min_value=5000, max_value=150000, value=60000, step=5000)
 
     #fuel_consumption = st.number_input("FuelConsumption (L/100km)",min_value=0.0, max_value=30.0, value=7.5, step=0.1)
     #cylinders = st.number_input("CylindersinEngine", min_value=0, max_value=16, value=4, step=1)
     #seats = st.selectbox("Seats", [2,5,6,7],index=1)
 
-
+    # --- Seats logic: show only if Brand+Model has multiple seat values ---
     multi_seat_set = set(zip(multi_seat_lookup["Brand"], multi_seat_lookup["Model"]))
 
     row = seat_defaults[(seat_defaults["Brand"] == brand) & (seat_defaults["Model"] == model)]
@@ -112,14 +120,14 @@ with st.sidebar:
     "Fuel Consumption (L/100km)",
     min_value=2.0,
     max_value=20.0,
-    value=7.0 if is_electric else 7.5,
+    value=0.0 if is_electric else 7.5,
     step=0.5,
     disabled=is_electric
     )
 
     cylinders = st.slider(
     "Cylinders in Engine",
-    min_value=2,
+    min_value=0,
     max_value=8,
     value=0 if is_electric else 4,
     step=2,
