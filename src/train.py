@@ -92,6 +92,23 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     .sort_values(["Brand", "Model"])
     )
 
+    # ---- BodyType lookup per Brand-Model ----
+    brand_model_bodytype = (
+    df[["Brand", "Model", "BodyType"]]
+    .dropna()
+    .drop_duplicates()
+    .sort_values(["Brand", "Model", "BodyType"])
+    )
+
+    brand_model_bodytype.to_csv(f"{out_dir}/brand_model_bodytype_lookup.csv", index=False)
+
+    # ---- Default BodyType per Brand-Model (mode) ----
+    bodytype_default = (
+    df.groupby(["Brand", "Model"])["BodyType"]
+      .agg(lambda s: s.mode().iat[0] if not s.mode().empty else "Other")
+      .reset_index(name="DefaultBodyType")
+    )
+
 
     # ---- build lookups + features ----
     bm_lookup, b_lookup = build_new_price_lookups(df)
@@ -139,6 +156,7 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     brand_model_lookup.to_csv(f"{out_dir}/brand_model_lookup_50.csv", index=False)
     multi_seat_models.to_csv(f"{out_dir}/multi_seat_models.csv", index=False)
     seat_default_lookup.to_csv(f"{out_dir}/brand_model_seat_default.csv", index=False)
+    bodytype_default.to_csv(f"{out_dir}/brand_model_bodytype_default.csv", index=False)
 
     print(f"\n✅ Saved to {out_dir}/:")
     print(" - final_price_pipe.joblib")
