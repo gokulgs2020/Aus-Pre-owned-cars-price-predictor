@@ -30,10 +30,18 @@ def price_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     return {"MAE": mae, "RMSE": rmse, "MAPE": mape, "R2": r2}
 
 
-def build_pipeline() -> Pipeline:
+def build_pipeline(ohe_categories) -> Pipeline:
+    """
+    Important: pass fixed OneHotEncoder categories so feature count stays constant across folds.
+    """
+    cat_encoder = OneHotEncoder(
+        handle_unknown="ignore",
+        categories=ohe_categories
+    )
+
     pre = ColumnTransformer(
         transformers=[
-            ("cat", OneHotEncoder(handle_unknown="ignore"), CAT_COLS),
+            ("cat", cat_encoder, CAT_COLS),
             ("num", "passthrough", NUM_COLS),
         ],
         remainder="drop"
@@ -46,10 +54,24 @@ def build_pipeline() -> Pipeline:
         min_child_samples=50,
         subsample=0.8,
         colsample_bytree=0.8,
-        random_state=RANDOM_STATE
+        random_state=RANDOM_STATE,
     )
 
-    return Pipeline([("pre", pre), ("model", model)])
+    pipe = Pipeline([("pre", pre), ("model", model)])
+
+    # monotone constraints for NUM_COLS only (same order)
+    pipe._num_constraints = [0, 0, -1, 0, 0, 0]
+    return pipe
+
+
+def set_monotone_constraints(pipe: Pipeline):
+    """
+    Set constraints AFTER preprocessor is fitted (so we know expanded feature count).
+    """
+    ohe = pipe.named_steps["pre"].named_transformers_["cat"]
+    n_cat = len(ohe.get_feature_names_out(CAT_COLS))
+    constraints = [0] * n_cat + list(pipe._num_constraints)
+    pipe.named_steps["model"].set_params(monotone_constraints=constraints)
 
 
 def train(csv_path: str, out_dir: str = "models") -> None:
@@ -62,53 +84,47 @@ def train(csv_path: str, out_dir: str = "models") -> None:
 
     # ---- Default Seats per Brand-Model (mode) ----
     seat_default_lookup = (
-    df.groupby(["Brand", "Model"])["Seats"]
-      .agg(lambda s: s.mode().iat[0] if not s.mode().empty else int(s.median()))
-      .reset_index(name="DefaultSeats")
+        df.groupby(["Brand", "Model"])["Seats"]
+          .agg(lambda s: s.mode().iat[0] if not s.mode().empty else int(s.median()))
+          .reset_index(name="DefaultSeats")
     )
 
     seat_check = (
-    df.groupby(["Brand", "Model"])["Seats"]
-      .nunique(dropna=True)
-      .reset_index(name="unique_seat_count")
+        df.groupby(["Brand", "Model"])["Seats"]
+          .nunique(dropna=True)
+          .reset_index(name="unique_seat_count")
     )
 
     multi_seat_models = seat_check[seat_check["unique_seat_count"] > 1][["Brand", "Model"]]
-    
 
-
-
-    # ✅ ADD THIS (Brand-Model lookup with >=50 rows)
+    # ---- Brand-Model lookup (>=50 rows) ----
     MIN_MODEL_COUNT = 50
     brand_model_counts = (
-    df.groupby(["Brand", "Model"])
-      .size()
-      .reset_index(name="count")
+        df.groupby(["Brand", "Model"])
+          .size()
+          .reset_index(name="count")
     )
 
     brand_model_lookup = (
-    brand_model_counts[brand_model_counts["count"] >= MIN_MODEL_COUNT]
-    [["Brand", "Model"]]
-    .sort_values(["Brand", "Model"])
+        brand_model_counts[brand_model_counts["count"] >= MIN_MODEL_COUNT]
+        [["Brand", "Model"]]
+        .sort_values(["Brand", "Model"])
     )
 
     # ---- BodyType lookup per Brand-Model ----
     brand_model_bodytype = (
-    df[["Brand", "Model", "BodyType"]]
-    .dropna()
-    .drop_duplicates()
-    .sort_values(["Brand", "Model", "BodyType"])
+        df[["Brand", "Model", "BodyType"]]
+        .dropna()
+        .drop_duplicates()
+        .sort_values(["Brand", "Model", "BodyType"])
     )
-
     brand_model_bodytype.to_csv(f"{out_dir}/brand_model_bodytype_lookup.csv", index=False)
 
-    # ---- Default BodyType per Brand-Model (mode) ----
     bodytype_default = (
-    df.groupby(["Brand", "Model"])["BodyType"]
-      .agg(lambda s: s.mode().iat[0] if not s.mode().empty else "Other")
-      .reset_index(name="DefaultBodyType")
+        df.groupby(["Brand", "Model"])["BodyType"]
+          .agg(lambda s: s.mode().iat[0] if not s.mode().empty else "Other")
+          .reset_index(name="DefaultBodyType")
     )
-
 
     # ---- build lookups + features ----
     bm_lookup, b_lookup = build_new_price_lookups(df)
@@ -118,14 +134,24 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     y = df_feat["y"].copy()
     groups = df_feat[MODEL_GROUP_COL].copy()
 
-    pipe = build_pipeline()
+    # ✅ Learn full OHE categories ONCE from full dataset
+    base_ohe = OneHotEncoder(handle_unknown="ignore")
+    base_ohe.fit(X[CAT_COLS])
+    ohe_categories = base_ohe.categories_
 
-    # ---- CV evaluation (GroupKFold) ----
+    # ---- CV evaluation ----
     gkf = GroupKFold(n_splits=5)
     fold_scores = []
 
     for fold, (tr, te) in enumerate(gkf.split(X, y, groups), start=1):
-        pipe.fit(X.iloc[tr], y.iloc[tr])
+        pipe = build_pipeline(ohe_categories=ohe_categories)
+
+        # Fit preprocessor first to get final feature count → set monotone constraints → fit full model
+        pipe.named_steps["pre"].fit(X.iloc[tr])
+        set_monotone_constraints(pipe)
+
+        pipe.named_steps["model"].fit(pipe.named_steps["pre"].transform(X.iloc[tr]), y.iloc[tr])
+
         pred_log_ret = pipe.predict(X.iloc[te])
 
         pred_ret = np.exp(pred_log_ret)
@@ -144,25 +170,27 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     print("\nAverage CV metrics (price):")
     print(scores_df[["MAE", "RMSE", "MAPE", "R2"]].mean().to_dict())
 
-    # ---- Train final on all data ----
+    # ---- Final train on all data ----
+    pipe = build_pipeline(ohe_categories=ohe_categories)
+    pipe.named_steps["pre"].fit(X)
+    set_monotone_constraints(pipe)
+
     pipe.fit(X, y)
 
-    # ---- Save model + features + lookups (JOBLIB - more stable than pickle) ----
+    # ---- Save ----
     joblib.dump(pipe, f"{out_dir}/final_price_pipe.joblib")
     joblib.dump(list(X.columns), f"{out_dir}/model_features.joblib")
 
     bm_lookup.to_csv(f"{out_dir}/new_price_lookup_bm.csv", index=False)
     b_lookup.to_csv(f"{out_dir}/new_price_lookup_b.csv", index=False)
     brand_model_lookup.to_csv(f"{out_dir}/brand_model_lookup_50.csv", index=False)
+
     multi_seat_models.to_csv(f"{out_dir}/multi_seat_models.csv", index=False)
     seat_default_lookup.to_csv(f"{out_dir}/brand_model_seat_default.csv", index=False)
+
     bodytype_default.to_csv(f"{out_dir}/brand_model_bodytype_default.csv", index=False)
 
-    print(f"\n✅ Saved to {out_dir}/:")
-    print(" - final_price_pipe.joblib")
-    print(" - model_features.joblib")
-    print(" - new_price_lookup_bm.csv")
-    print(" - new_price_lookup_b.csv")
+    print(f"\n✅ Saved to {out_dir}/")
 
 
 if __name__ == "__main__":
