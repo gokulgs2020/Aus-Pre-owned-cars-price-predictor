@@ -1,6 +1,6 @@
-import pickle
 import numpy as np
 import pandas as pd
+import joblib
 
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -18,6 +18,7 @@ from .data_prep import clean_raw
 from .features import apply_filters, build_new_price_lookups, add_features
 from .utils import ensure_dir
 
+
 def price_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
@@ -27,6 +28,7 @@ def price_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     mape = np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1e-9)))
     r2 = r2_score(y_true, y_pred)
     return {"MAE": mae, "RMSE": rmse, "MAPE": mape, "R2": r2}
+
 
 def build_pipeline() -> Pipeline:
     pre = ColumnTransformer(
@@ -49,6 +51,7 @@ def build_pipeline() -> Pipeline:
 
     return Pipeline([("pre", pre), ("model", model)])
 
+
 def train(csv_path: str, out_dir: str = "models") -> None:
     ensure_dir(out_dir)
 
@@ -56,6 +59,39 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     df_raw = pd.read_csv(csv_path)
     df = clean_raw(df_raw)
     df = apply_filters(df, max_price=MAX_PRICE, max_km=MAX_KM, min_year=MIN_YEAR)
+
+    # ---- Default Seats per Brand-Model (mode) ----
+    seat_default_lookup = (
+    df.groupby(["Brand", "Model"])["Seats"]
+      .agg(lambda s: s.mode().iat[0] if not s.mode().empty else int(s.median()))
+      .reset_index(name="DefaultSeats")
+    )
+
+    seat_check = (
+    df.groupby(["Brand", "Model"])["Seats"]
+      .nunique(dropna=True)
+      .reset_index(name="unique_seat_count")
+    )
+
+    multi_seat_models = seat_check[seat_check["unique_seat_count"] > 1][["Brand", "Model"]]
+    
+
+
+
+    # ✅ ADD THIS (Brand-Model lookup with >=50 rows)
+    MIN_MODEL_COUNT = 50
+    brand_model_counts = (
+    df.groupby(["Brand", "Model"])
+      .size()
+      .reset_index(name="count")
+    )
+
+    brand_model_lookup = (
+    brand_model_counts[brand_model_counts["count"] >= MIN_MODEL_COUNT]
+    [["Brand", "Model"]]
+    .sort_values(["Brand", "Model"])
+    )
+
 
     # ---- build lookups + features ----
     bm_lookup, b_lookup = build_new_price_lookups(df)
@@ -70,6 +106,7 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     # ---- CV evaluation (GroupKFold) ----
     gkf = GroupKFold(n_splits=5)
     fold_scores = []
+
     for fold, (tr, te) in enumerate(gkf.split(X, y, groups), start=1):
         pipe.fit(X.iloc[tr], y.iloc[tr])
         pred_log_ret = pipe.predict(X.iloc[te])
@@ -90,32 +127,32 @@ def train(csv_path: str, out_dir: str = "models") -> None:
     print("\nAverage CV metrics (price):")
     print(scores_df[["MAE", "RMSE", "MAPE", "R2"]].mean().to_dict())
 
-
     # ---- Train final on all data ----
     pipe.fit(X, y)
 
-    # ---- Save model + features + lookups ----
-    with open(f"{out_dir}/final_price_pipe.pkl", "wb") as f:
-        pickle.dump(pipe, f)
-
-    with open(f"{out_dir}/model_features.pkl", "wb") as f:
-        pickle.dump(list(X.columns), f)
+    # ---- Save model + features + lookups (JOBLIB - more stable than pickle) ----
+    joblib.dump(pipe, f"{out_dir}/final_price_pipe.joblib")
+    joblib.dump(list(X.columns), f"{out_dir}/model_features.joblib")
 
     bm_lookup.to_csv(f"{out_dir}/new_price_lookup_bm.csv", index=False)
     b_lookup.to_csv(f"{out_dir}/new_price_lookup_b.csv", index=False)
+    brand_model_lookup.to_csv(f"{out_dir}/brand_model_lookup_50.csv", index=False)
+    multi_seat_models.to_csv(f"{out_dir}/multi_seat_models.csv", index=False)
+    seat_default_lookup.to_csv(f"{out_dir}/brand_model_seat_default.csv", index=False)
 
     print(f"\n✅ Saved to {out_dir}/:")
-    print(" - final_price_pipe.pkl")
-    print(" - model_features.pkl")
+    print(" - final_price_pipe.joblib")
+    print(" - model_features.joblib")
     print(" - new_price_lookup_bm.csv")
     print(" - new_price_lookup_b.csv")
 
+
 if __name__ == "__main__":
-    # Example:
-    # python -m src.train data/raw/Australian\ Vehicle\ Prices.csv
     import argparse
+
     p = argparse.ArgumentParser()
     p.add_argument("csv_path", type=str)
     p.add_argument("--out_dir", type=str, default="models")
     args = p.parse_args()
+
     train(args.csv_path, args.out_dir)

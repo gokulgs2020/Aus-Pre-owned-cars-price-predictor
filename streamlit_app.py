@@ -12,7 +12,9 @@ def load_artifacts():
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
     brand_model_lookup = pd.read_csv("models/brand_model_lookup_50.csv")
-    return pipe, feature_cols, bm, b,brand_model_lookup
+    seat_defaults = pd.read_csv("models/brand_model_seat_default.csv")
+    multi_seat_lookup = pd.read_csv("models/multi_seat_models.csv")
+    return pipe, feature_cols, bm, b,brand_model_lookup,seat_defaults,multi_seat_lookup
 
 
 def lookup_new_price(brand: str, model: str, bm: pd.DataFrame, b: pd.DataFrame) -> float:
@@ -56,7 +58,7 @@ def make_features(
 st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
 st.title("🚗 Preowned Car Price Estimator (AU)")
 
-pipe, feature_cols, bm, b,brand_model_lookup = load_artifacts()
+pipe, feature_cols, bm, b,brand_model_lookup,seat_defaults,multi_seat_lookup = load_artifacts()
 
 with st.sidebar:
     st.header("Vehicle details")
@@ -71,22 +73,35 @@ with st.sidebar:
     model = st.selectbox("Model", models)
 
     used_or_new = "USED"
-    drive_type = st.text_input("DriveType", value="FWD")
-    body_type = st.text_input("BodyType", value="Sedan")
+    drive_type = st.selectbox("Drive Type", ["FWD","AWD"],index=0)
+    body_type = "Sedan"
 
     transmission = st.selectbox("Transmission", ["Automatic", "Manual"], index=0)
     #fuel_type = st.selectbox("FuelType", ["Gasoline", "Diesel", "Hybrid", "Electric"], index=0)
 
-    year = st.slider("Manufacture year", min_value=2000, max_value=2026, value=2020, step=1)
+    year = st.number_input("Year of Manufacture", min_value=2000, max_value=2026, value=2020, step=1)
     age=2026-year
-    km = st.slider("Kilometres", min_value=5000, max_value=400000, value=60000, step=5000)
+    km = st.number_input("Kilometres", min_value=5000, max_value=150000, value=60000, step=5000)
 
     #fuel_consumption = st.number_input("FuelConsumption (L/100km)",min_value=0.0, max_value=30.0, value=7.5, step=0.1)
     #cylinders = st.number_input("CylindersinEngine", min_value=0, max_value=16, value=4, step=1)
-    seats = st.selectbox("Seats", [2,5,6,7],index=1)
+    #seats = st.selectbox("Seats", [2,5,6,7],index=1)
+
+
+    multi_seat_set = set(zip(multi_seat_lookup["Brand"], multi_seat_lookup["Model"]))
+
+    row = seat_defaults[(seat_defaults["Brand"] == brand) & (seat_defaults["Model"] == model)]
+    default_seats = int(row["DefaultSeats"].iloc[0]) if len(row) else 5
+
+    if (brand, model) in multi_seat_set:
+        seats = st.selectbox("Seats", [2, 5, 6, 7], index=[2,5,6,7].index(default_seats) if default_seats in [2,5,6,7] else 1)
+    else:
+        seats = default_seats
+        st.caption(f"Seats auto-set to **{seats}** based on training data for this model.")
+
 
     fuel_type = st.selectbox(
-    "FuelType",
+    "Fuel Type",
     ["Gasoline", "Diesel", "Hybrid", "Electric"],
     index=0
     )
@@ -94,7 +109,7 @@ with st.sidebar:
     is_electric = (fuel_type == "Electric")
 
     fuel_consumption = st.slider(
-    "FuelConsumption (L/100km)",
+    "Fuel Consumption (L/100km)",
     min_value=2.0,
     max_value=20.0,
     value=7.0 if is_electric else 7.5,
@@ -103,7 +118,7 @@ with st.sidebar:
     )
 
     cylinders = st.slider(
-    "CylindersinEngine",
+    "Cylinders in Engine",
     min_value=2,
     max_value=8,
     value=0 if is_electric else 4,
