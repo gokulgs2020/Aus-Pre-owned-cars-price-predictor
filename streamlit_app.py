@@ -95,17 +95,25 @@ with st.sidebar:
     #cylinders = st.number_input("CylindersinEngine", min_value=0, max_value=16, value=4, step=1)
     #seats = st.selectbox("Seats", [2,5,6,7],index=1)
 
-    # --- Seats logic: show only if Brand+Model has multiple seat values ---
-    multi_seat_set = set(zip(multi_seat_lookup["Brand"], multi_seat_lookup["Model"]))
+    # --- Seats logic ---
+    multi_seat_set = set(
+        zip(
+            multi_seat_lookup["Brand"].astype(str).str.strip(),
+            multi_seat_lookup["Model"].astype(str).str.strip(),
+        )
+    )
 
-    row = seat_defaults[(seat_defaults["Brand"] == brand) & (seat_defaults["Model"] == model)]
+    row = seat_defaults[
+        (seat_defaults["Brand"].astype(str).str.strip() == brand.strip()) &
+        (seat_defaults["Model"].astype(str).str.strip() == model.strip())
+    ]
+
     default_seats = int(row["DefaultSeats"].iloc[0]) if len(row) else 5
 
-    if (brand, model) in multi_seat_set:
-        seats = st.selectbox("Seats", [2, 5, 6, 7], index=[2,5,6,7].index(default_seats) if default_seats in [2,5,6,7] else 1)
+    if (brand.strip(), model.strip()) in multi_seat_set:
+        seats = st.selectbox("Seats", [2, 5, 6, 7], index=1)
     else:
-        seats = default_seats
-        st.caption(f"Seats auto-set to **{seats}** based on training data for this model.")
+        seats = default_seats   # no widget to be shown when we have default seat
 
 
     fuel_type = st.selectbox(
