@@ -17,3 +17,9 @@ venv/
 # Allow model artifacts (needed for Streamlit Cloud)
 !models/*.pkl
 !models/*.csv
+
+#Evaluation files
+EDA/
+Notebook_file.py
+test_actual_vs_pred.py
+test_predictions.py
