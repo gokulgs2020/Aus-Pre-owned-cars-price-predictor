@@ -5,3 +5,4 @@ lightgbm==4.5.0
 streamlit==1.41.1
 joblib==1.4.2
 pyarrow==18.1.0
+openai>=1.0.0
