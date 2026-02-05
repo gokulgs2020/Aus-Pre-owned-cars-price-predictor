@@ -4,6 +4,7 @@ import streamlit as st
 import joblib
 from datetime import datetime
 import json
+from openai import OpenAI
 
 
 # -----------------------------
