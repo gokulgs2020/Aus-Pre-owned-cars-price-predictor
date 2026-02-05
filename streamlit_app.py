@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -7,12 +8,57 @@ import joblib
 from datetime import datetime
 from openai import OpenAI
 
+
 # -----------------------------
 # Config
 # -----------------------------
 st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    st.error("OPENAI_API_KEY not set")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
+
+
+# -----------------------------
+# Helpers
+# -----------------------------
+def parse_numeric(value):
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        value = value.lower()
+        value = value.replace("kms", "")
+        value = value.replace("km", "")
+        value = value.replace(",", "")
+        value = value.replace("$", "")
+        value = value.replace("k", "000")
+
+        nums = re.findall(r"\d+", value)
+
+        if nums:
+            return float("".join(nums))
+
+    return None
+
+
+def safe_json_parse(text):
+
+    text = text.strip()
+
+    if text.startswith("```"):
+        text = text.split("```")[1]
+
+        if text.startswith("json"):
+            text = text[4:]
+
+    return json.loads(text.strip())
+
 
 # -----------------------------
 # Load artifacts
@@ -25,12 +71,15 @@ def load_artifacts():
     brand_model_lookup = pd.read_csv("models/brand_model_lookup_50.csv")
     return pipe, bm, b, brand_model_lookup
 
+
 pipe, bm, b, brand_model_lookup = load_artifacts()
+
 
 # -----------------------------
 # Lookup new price
 # -----------------------------
 def lookup_new_price(brand, model):
+
     row_bm = bm[(bm["Brand"] == brand) & (bm["Model"] == model)]
     if len(row_bm):
         return float(row_bm["New_Price_bm"].iloc[0])
@@ -41,10 +90,12 @@ def lookup_new_price(brand, model):
 
     return float("nan")
 
+
 # -----------------------------
 # Feature builder
 # -----------------------------
 def make_features(brand, model, age, km):
+
     return pd.DataFrame([{
         "Age": age,
         "log_km": np.log1p(km),
@@ -61,6 +112,7 @@ def make_features(brand, model, age, km):
         "FuelType": "Gasoline",
     }])
 
+
 # -----------------------------
 # Session state
 # -----------------------------
@@ -70,10 +122,12 @@ if "chat_history" not in st.session_state:
 if "vehicle_data" not in st.session_state:
     st.session_state.vehicle_data = {}
 
+
 # -----------------------------
 # Tabs
 # -----------------------------
 tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 AI Deal Advisor"])
+
 
 # =====================================================
 # TAB 1 → ORIGINAL ESTIMATOR
@@ -111,6 +165,7 @@ with tab1:
         st.success(f"Estimated Price: A$ {pred_price:,.0f}")
         st.caption(f"Retention: {retention:.3f} | New Price Proxy: A$ {new_price:,.0f}")
 
+
 # =====================================================
 # TAB 2 → AI DEAL ADVISOR
 # =====================================================
@@ -118,18 +173,15 @@ with tab2:
 
     st.header("Conversational AI Deal Advisor")
 
-    # Restart button
     if st.button("🔄 Restart Conversation"):
         st.session_state.chat_history = []
         st.session_state.vehicle_data = {}
         st.rerun()
 
-    # Show collected data
     if st.session_state.vehicle_data:
         st.sidebar.write("Collected Data")
         st.sidebar.json(st.session_state.vehicle_data)
 
-    # Chat input
     user_input = st.chat_input("Paste listing or answer questions...")
 
     if user_input:
@@ -161,8 +213,10 @@ Return ONLY JSON:
         )
 
         try:
-            parsed = json.loads(response.choices[0].message.content)
-            st.session_state.vehicle_data.update(parsed["extracted_data"])
+            parsed = safe_json_parse(response.choices[0].message.content)
+
+            st.session_state.vehicle_data.update(parsed.get("extracted_data", {}))
+
         except:
             st.session_state.chat_history.append({
                 "role": "assistant",
@@ -174,7 +228,9 @@ Return ONLY JSON:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # Strong validation
+    # -----------------------------
+    # Strong Validation
+    # -----------------------------
     required = ["Brand", "Model", "Year", "Kilometres"]
 
     missing = [
@@ -186,17 +242,24 @@ Return ONLY JSON:
     if missing:
         st.info(f"I still need: {', '.join(missing)}")
 
-    # Run pricing
+    # -----------------------------
+    # Run Pricing
+    # -----------------------------
     if len(missing) == 0:
 
         data = st.session_state.vehicle_data
 
         brand = data["Brand"]
         model = data["Model"]
-        year = int(data["Year"])
-        kms = float(data["Kilometres"])
 
-        age = datetime.now().year - year
+        year = parse_numeric(data["Year"])
+        kms = parse_numeric(data["Kilometres"])
+
+        if year is None or kms is None:
+            st.error("Could not parse Year or Kilometres.")
+            st.stop()
+
+        age = datetime.now().year - int(year)
         new_price = lookup_new_price(brand, model)
 
         if not np.isnan(new_price):
