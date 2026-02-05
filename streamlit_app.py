@@ -3,7 +3,10 @@ import pandas as pd
 import streamlit as st
 import joblib
 from datetime import datetime
-import re
+import json
+from openai import OpenAI
+
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 
 # -----------------------------
@@ -12,34 +15,20 @@ import re
 @st.cache_resource
 def load_artifacts():
     pipe = joblib.load("models/final_price_pipe.joblib")
-    feature_cols = joblib.load("models/model_features.joblib")
 
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
 
-    brand_model_lookup = pd.read_csv("models/brand_model_lookup_50.csv")
-    seat_defaults = pd.read_csv("models/brand_model_seat_default.csv")
-    multi_seat_lookup = pd.read_csv("models/multi_seat_models.csv")
+    return pipe, bm, b
 
-    multi_seat_lookup = multi_seat_lookup.merge(
-        brand_model_lookup,
-        on=["Brand", "Model"],
-        how="inner"
-    )
 
-    for df_ in [bm, b, brand_model_lookup, seat_defaults, multi_seat_lookup]:
-        if "Brand" in df_.columns:
-            df_["Brand"] = df_["Brand"].astype(str).str.strip()
-        if "Model" in df_.columns:
-            df_["Model"] = df_["Model"].astype(str).str.strip()
-
-    return pipe, feature_cols, bm, b, brand_model_lookup, seat_defaults, multi_seat_lookup
+pipe, bm, b = load_artifacts()
 
 
 # -----------------------------
-# Lookups
+# Lookup new price
 # -----------------------------
-def lookup_new_price(brand, model, bm, b):
+def lookup_new_price(brand, model):
     row_bm = bm[(bm["Brand"] == brand) & (bm["Model"] == model)]
     if len(row_bm) > 0:
         return float(row_bm["New_Price_bm"].iloc[0])
@@ -54,176 +43,134 @@ def lookup_new_price(brand, model, bm, b):
 # -----------------------------
 # Feature Builder
 # -----------------------------
-def make_features(
-    brand, model, used_or_new, drive_type, body_type,
-    transmission, fuel_type,
-    age, km, fuel_consumption, cylinders, seats
-):
+def make_features(brand, model, age, km):
     log_km = np.log1p(km)
     age_km_interaction = (age * km) / 10000
 
     return pd.DataFrame([{
-        "Age": float(age),
-        "log_km": float(log_km),
-        "FuelConsumption": float(fuel_consumption),
-        "CylindersinEngine": int(cylinders),
-        "Seats": int(seats),
-        "age_kilometer_interaction": float(age_km_interaction),
-
+        "Age": age,
+        "log_km": log_km,
+        "FuelConsumption": 7.5,
+        "CylindersinEngine": 4,
+        "Seats": 5,
+        "age_kilometer_interaction": age_km_interaction,
         "Brand": brand,
         "Model": model,
-        "UsedOrNew": used_or_new,
-        "DriveType": drive_type,
-        "BodyType": body_type,
-        "Transmission": transmission,
-        "FuelType": fuel_type,
+        "UsedOrNew": "USED",
+        "DriveType": "FWD",
+        "BodyType": "Sedan",
+        "Transmission": "Automatic",
+        "FuelType": "Gasoline",
     }])
 
 
 # -----------------------------
-# Carsales Text Parsers
+# App UI
 # -----------------------------
-def parse_price(text):
-    m = re.search(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})+)", text)
-    return int(m.group(1).replace(",", "")) if m else None
-
-
-def parse_kms(text):
-    m = re.search(r"([0-9]{1,3}(?:,[0-9]{3})+)\s*km", text, re.IGNORECASE)
-    return int(m.group(1).replace(",", "")) if m else None
-
-
-def parse_year(text):
-    m = re.search(r"\b(19[8-9]\d|20[0-2]\d)\b", text)
-    return int(m.group(1)) if m else None
+st.set_page_config(page_title="AI Car Deal Advisor", layout="centered")
+st.title("🚗 AI Preowned Car Deal Advisor")
 
 
 # -----------------------------
-# Deal Classification
+# Session State
 # -----------------------------
-def classify_deal(listing_price, pred_price):
-    gap = listing_price - pred_price
-    gap_pct = gap / max(pred_price, 1)
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-    if gap_pct > 0.08:
-        label = "⚠️ Overpriced"
-    elif gap_pct < -0.08:
-        label = "🔥 Bargain"
-    else:
-        label = "✅ Fair Price"
-
-    return gap, gap_pct, label
+if "vehicle_data" not in st.session_state:
+    st.session_state.vehicle_data = {}
 
 
 # -----------------------------
-# UI
+# Chat Input
 # -----------------------------
-st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
-st.title("🚗 Preowned Car Price Estimator (AU)")
+user_input = st.chat_input("Paste listing or answer questions...")
 
-pipe, feature_cols, bm, b, brand_model_lookup, seat_defaults, multi_seat_lookup = load_artifacts()
+if user_input:
 
-tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 Deal Advisor"])
+    st.session_state.chat_history.append({"role": "user", "content": user_input})
+
+    # ---------- LLM Prompt ----------
+    prompt = f"""
+You are collecting vehicle details for valuation.
+
+Current known data:
+{st.session_state.vehicle_data}
+
+User message:
+{user_input}
+
+Required fields:
+Brand
+Model
+Year
+Kilometres
+
+Return ONLY valid JSON:
+{{
+ "extracted_data": {{}},
+ "next_question": ""
+}}
+
+If all required fields exist:
+next_question = "DONE"
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+
+    output = response.choices[0].message.content
+
+    try:
+        parsed = json.loads(output)
+
+        st.session_state.vehicle_data.update(parsed["extracted_data"])
+        next_q = parsed["next_question"]
+
+    except:
+        next_q = "Sorry, I could not understand. Please re-enter."
+
+    st.session_state.chat_history.append({"role": "assistant", "content": next_q})
 
 
-# =====================================================
-# TAB 1 → EXISTING ESTIMATOR (UNCHANGED)
-# =====================================================
-with tab1:
+# -----------------------------
+# Display Chat
+# -----------------------------
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
 
-    with st.sidebar:
-        st.header("Vehicle details")
 
-        brands = sorted(brand_model_lookup["Brand"].dropna().unique())
-        brand = st.selectbox("Brand", brands)
+# -----------------------------
+# Run Pricing When Ready
+# -----------------------------
+required = ["Brand", "Model", "Year", "Kilometres"]
 
-        models = sorted(
-            brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"].dropna().unique()
-        )
-        model = st.selectbox("Model", models)
+if all(k in st.session_state.vehicle_data for k in required):
 
-        used_or_new = "USED"
-        drive_type = st.selectbox("Drive Type", ["FWD", "AWD"])
-        body_type = "Sedan"
+    data = st.session_state.vehicle_data
 
-        transmission = st.selectbox("Transmission", ["Automatic", "Manual"])
+    brand = data["Brand"]
+    model = data["Model"]
+    year = int(data["Year"])
+    kms = float(data["Kilometres"])
 
-        current_year = datetime.now().year
-        year = st.number_input("Year", 2000, current_year, 2020)
-        age = current_year - year
+    age = datetime.now().year - year
 
-        km = st.number_input("Kilometres", 0, 200000, 60000, step=5000)
+    new_price = lookup_new_price(brand, model)
 
-        row = seat_defaults[(seat_defaults["Brand"] == brand) &
-                            (seat_defaults["Model"] == model)]
+    if not np.isnan(new_price):
 
-        seats = int(row["DefaultSeats"].iloc[0]) if len(row) else 5
-
-        fuel_type = st.selectbox("Fuel Type", ["Gasoline", "Diesel", "Hybrid", "Electric"])
-        is_electric = (fuel_type == "Electric")
-
-        fuel_consumption = st.slider("Fuel Consumption", 0.0, 20.0, 7.5, disabled=is_electric)
-        cylinders = st.slider("Cylinders", 0, 8, 4, step=2, disabled=is_electric)
-
-    if st.button("Estimate price", type="primary"):
-
-        new_price = lookup_new_price(brand, model, bm, b)
-
-        X = make_features(
-            brand, model, used_or_new, drive_type, body_type,
-            transmission, fuel_type,
-            age, km, fuel_consumption, cylinders, seats
-        )
+        X = make_features(brand, model, age, kms)
 
         log_ret = float(pipe.predict(X)[0])
         retention = float(np.exp(log_ret))
         pred_price = retention * new_price
 
+        st.divider()
         st.success(f"Estimated Price: A$ {pred_price:,.0f}")
+
         st.caption(f"Retention: {retention:.3f} | Proxy New Price: A$ {new_price:,.0f}")
-
-
-# =====================================================
-# TAB 2 → DEAL ADVISOR
-# =====================================================
-with tab2:
-
-    st.header("Carsales Deal Advisor")
-
-    raw_text = st.text_area("Paste Carsales Listing Text")
-
-    brand_da = st.text_input("Brand")
-    model_da = st.text_input("Model")
-
-    if st.button("Analyze Deal"):
-
-        price = parse_price(raw_text)
-        kms = parse_kms(raw_text)
-        year = parse_year(raw_text)
-
-        if not all([price, kms, year, brand_da, model_da]):
-            st.error("Missing values. Please paste richer listing text or fill manually.")
-            st.stop()
-
-        current_year = datetime.now().year
-        age = current_year - year
-
-        new_price = lookup_new_price(brand_da, model_da, bm, b)
-
-        X = make_features(
-            brand_da, model_da, "USED", "FWD", "Sedan",
-            "Automatic", "Gasoline",
-            age, kms, 7.5, 4, 5
-        )
-
-        log_ret = float(pipe.predict(X)[0])
-        retention = float(np.exp(log_ret))
-        pred_price = retention * new_price
-
-        gap, gap_pct, label = classify_deal(price, pred_price)
-
-        st.metric("Listing Price", f"A$ {price:,.0f}")
-        st.metric("Estimated Price", f"A$ {pred_price:,.0f}")
-        st.metric("Gap", f"A$ {gap:,.0f} ({gap_pct*100:.1f}%)")
-
-        st.success(label)
