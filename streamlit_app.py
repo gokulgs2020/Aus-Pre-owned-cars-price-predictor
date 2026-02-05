@@ -1,20 +1,18 @@
+import os
+import json
 import numpy as np
 import pandas as pd
 import streamlit as st
 import joblib
 from datetime import datetime
-import json
 from openai import OpenAI
 
-
 # -----------------------------
-# App UI
+# Config
 # -----------------------------
-st.set_page_config(page_title="AI Car Deal Advisor", layout="centered")
-st.title("🚗 AI Preowned Car Deal Advisor")
+st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # -----------------------------
 # Load artifacts
@@ -22,45 +20,38 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 @st.cache_resource
 def load_artifacts():
     pipe = joblib.load("models/final_price_pipe.joblib")
-
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
+    brand_model_lookup = pd.read_csv("models/brand_model_lookup_50.csv")
+    return pipe, bm, b, brand_model_lookup
 
-    return pipe, bm, b
-
-
-pipe, bm, b = load_artifacts()
-
+pipe, bm, b, brand_model_lookup = load_artifacts()
 
 # -----------------------------
 # Lookup new price
 # -----------------------------
 def lookup_new_price(brand, model):
     row_bm = bm[(bm["Brand"] == brand) & (bm["Model"] == model)]
-    if len(row_bm) > 0:
+    if len(row_bm):
         return float(row_bm["New_Price_bm"].iloc[0])
 
     row_b = b[b["Brand"] == brand]
-    if len(row_b) > 0:
+    if len(row_b):
         return float(row_b["New_Price_b"].iloc[0])
 
     return float("nan")
 
-
 # -----------------------------
-# Feature Builder
+# Feature builder
 # -----------------------------
 def make_features(brand, model, age, km):
-    log_km = np.log1p(km)
-    age_km_interaction = (age * km) / 10000
-
     return pd.DataFrame([{
         "Age": age,
-        "log_km": log_km,
+        "log_km": np.log1p(km),
         "FuelConsumption": 7.5,
         "CylindersinEngine": 4,
         "Seats": 5,
-        "age_kilometer_interaction": age_km_interaction,
+        "age_kilometer_interaction": (age * km) / 10000,
         "Brand": brand,
         "Model": model,
         "UsedOrNew": "USED",
@@ -70,10 +61,8 @@ def make_features(brand, model, age, km):
         "FuelType": "Gasoline",
     }])
 
-
-
 # -----------------------------
-# Session State
+# Session state
 # -----------------------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -81,19 +70,74 @@ if "chat_history" not in st.session_state:
 if "vehicle_data" not in st.session_state:
     st.session_state.vehicle_data = {}
 
-
 # -----------------------------
-# Chat Input
+# Tabs
 # -----------------------------
-user_input = st.chat_input("Paste listing or answer questions...")
+tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 AI Deal Advisor"])
 
-if user_input:
+# =====================================================
+# TAB 1 → ORIGINAL ESTIMATOR
+# =====================================================
+with tab1:
 
-    st.session_state.chat_history.append({"role": "user", "content": user_input})
+    st.header("Price Estimator")
 
-    # ---------- LLM Prompt ----------
-    prompt = f"""
-You are collecting vehicle details for valuation.
+    brands = sorted(brand_model_lookup["Brand"].unique())
+    brand = st.selectbox("Brand", brands)
+
+    models = sorted(
+        brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"].unique()
+    )
+    model = st.selectbox("Model", models)
+
+    year = st.number_input("Year", 2000, datetime.now().year, 2020)
+    km = st.number_input("Kilometres", 0, 200000, 60000)
+
+    if st.button("Estimate Price"):
+
+        age = datetime.now().year - year
+        new_price = lookup_new_price(brand, model)
+
+        if np.isnan(new_price):
+            st.error("Brand/Model not in training data")
+            st.stop()
+
+        X = make_features(brand, model, age, km)
+
+        log_ret = float(pipe.predict(X)[0])
+        retention = float(np.exp(log_ret))
+        pred_price = retention * new_price
+
+        st.success(f"Estimated Price: A$ {pred_price:,.0f}")
+        st.caption(f"Retention: {retention:.3f} | New Price Proxy: A$ {new_price:,.0f}")
+
+# =====================================================
+# TAB 2 → AI DEAL ADVISOR
+# =====================================================
+with tab2:
+
+    st.header("Conversational AI Deal Advisor")
+
+    # Restart button
+    if st.button("🔄 Restart Conversation"):
+        st.session_state.chat_history = []
+        st.session_state.vehicle_data = {}
+        st.rerun()
+
+    # Show collected data
+    if st.session_state.vehicle_data:
+        st.sidebar.write("Collected Data")
+        st.sidebar.json(st.session_state.vehicle_data)
+
+    # Chat input
+    user_input = st.chat_input("Paste listing or answer questions...")
+
+    if user_input:
+
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+
+        prompt = f"""
+Extract vehicle details from user message.
 
 Current known data:
 {st.session_state.vehicle_data}
@@ -102,76 +146,67 @@ User message:
 {user_input}
 
 Required fields:
-Brand
-Model
-Year
-Kilometres
+Brand, Model, Year, Kilometres
 
-Return ONLY valid JSON:
+Return ONLY JSON:
 {{
- "extracted_data": {{}},
- "next_question": ""
+ "extracted_data": {{}}
 }}
-
-If all required fields exist:
-next_question = "DONE"
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
 
-    output = response.choices[0].message.content
+        try:
+            parsed = json.loads(response.choices[0].message.content)
+            st.session_state.vehicle_data.update(parsed["extracted_data"])
+        except:
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": "I couldn't understand. Please re-enter."
+            })
 
-    try:
-        parsed = json.loads(output)
+    # Display chat
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
-        st.session_state.vehicle_data.update(parsed["extracted_data"])
-        next_q = parsed["next_question"]
+    # Strong validation
+    required = ["Brand", "Model", "Year", "Kilometres"]
 
-    except:
-        next_q = "Sorry, I could not understand. Please re-enter."
+    missing = [
+        k for k in required
+        if k not in st.session_state.vehicle_data
+        or st.session_state.vehicle_data[k] in ["", None]
+    ]
 
-    st.session_state.chat_history.append({"role": "assistant", "content": next_q})
+    if missing:
+        st.info(f"I still need: {', '.join(missing)}")
 
+    # Run pricing
+    if len(missing) == 0:
 
-# -----------------------------
-# Display Chat
-# -----------------------------
-for msg in st.session_state.chat_history:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+        data = st.session_state.vehicle_data
 
+        brand = data["Brand"]
+        model = data["Model"]
+        year = int(data["Year"])
+        kms = float(data["Kilometres"])
 
-# -----------------------------
-# Run Pricing When Ready
-# -----------------------------
-required = ["Brand", "Model", "Year", "Kilometres"]
+        age = datetime.now().year - year
+        new_price = lookup_new_price(brand, model)
 
-if all(k in st.session_state.vehicle_data for k in required):
+        if not np.isnan(new_price):
 
-    data = st.session_state.vehicle_data
+            X = make_features(brand, model, age, kms)
 
-    brand = data["Brand"]
-    model = data["Model"]
-    year = int(data["Year"])
-    kms = float(data["Kilometres"])
+            log_ret = float(pipe.predict(X)[0])
+            retention = float(np.exp(log_ret))
+            pred_price = retention * new_price
 
-    age = datetime.now().year - year
-
-    new_price = lookup_new_price(brand, model)
-
-    if not np.isnan(new_price):
-
-        X = make_features(brand, model, age, kms)
-
-        log_ret = float(pipe.predict(X)[0])
-        retention = float(np.exp(log_ret))
-        pred_price = retention * new_price
-
-        st.divider()
-        st.success(f"Estimated Price: A$ {pred_price:,.0f}")
-
-        st.caption(f"Retention: {retention:.3f} | Proxy New Price: A$ {new_price:,.0f}")
+            st.divider()
+            st.success(f"Estimated Price: A$ {pred_price:,.0f}")
+            st.caption(f"Retention: {retention:.3f} | New Price Proxy: A$ {new_price:,.0f}")
