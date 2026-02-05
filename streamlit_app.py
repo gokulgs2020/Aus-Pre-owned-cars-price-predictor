@@ -4,7 +4,13 @@ import streamlit as st
 import joblib
 from datetime import datetime
 import json
-from openai import OpenAI
+
+
+# -----------------------------
+# App UI
+# -----------------------------
+st.set_page_config(page_title="AI Car Deal Advisor", layout="centered")
+st.title("🚗 AI Preowned Car Deal Advisor")
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -63,12 +69,6 @@ def make_features(brand, model, age, km):
         "FuelType": "Gasoline",
     }])
 
-
-# -----------------------------
-# App UI
-# -----------------------------
-st.set_page_config(page_title="AI Car Deal Advisor", layout="centered")
-st.title("🚗 AI Preowned Car Deal Advisor")
 
 
 # -----------------------------
