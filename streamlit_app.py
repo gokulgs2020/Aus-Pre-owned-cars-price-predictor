@@ -24,17 +24,27 @@ client = OpenAI(api_key=api_key)
 # HELPERS
 # =====================================================
 def parse_numeric(value):
+    if value is None:
+        return None
+
     if isinstance(value, (int, float)):
         return float(value)
 
     if isinstance(value, str):
-        v = value.lower()
+        v = value.lower().strip()
+
+        # handle MY20, MY21
+        if v.startswith("my") and v[2:].isdigit():
+            return float("20" + v[2:])
+
         v = v.replace("kms", "").replace("km", "")
         v = v.replace(",", "").replace("$", "")
         v = v.replace("k", "000")
+
         nums = re.findall(r"\d+", v)
         if nums:
             return float("".join(nums))
+
     return None
 
 
@@ -47,28 +57,47 @@ def safe_json_parse(text):
     return json.loads(t.strip())
 
 # =====================================================
-# PERCEPTION TOOLS (CONTROLLED TEXT)
+# PERCEPTION TOOLS
 # =====================================================
 def tool_reliability(brand, model):
     if brand.lower() == "toyota":
-        return "Toyota models are widely regarded for mechanical reliability and long-term durability, with fewer major ownership issues than many peers."
-    return "There are no strong signals suggesting unusual reliability risks; expectations generally align with segment norms."
+        return (
+            "Toyota models are widely regarded for mechanical reliability and "
+            "long-term durability, with fewer major ownership issues than many peers."
+        )
+    return (
+        "There are no strong signals suggesting unusual reliability risks; "
+        "expectations generally align with segment norms."
+    )
 
 
 def tool_maintenance(brand, model):
     if brand.lower() == "toyota":
-        return "Toyota benefits from a broad service network, readily available spare parts, and relatively low ownership friction."
-    return "Maintenance and servicing requirements are broadly in line with segment expectations."
+        return (
+            "Toyota benefits from a broad service network, readily available spare parts, "
+            "and relatively low ownership friction."
+        )
+    return (
+        "Maintenance and servicing requirements are broadly in line with segment expectations."
+    )
 
 
 def tool_resale(brand, model):
     if brand.lower() == "toyota":
-        return "Toyota vehicles typically command strong used-market demand, supporting above-average resale value."
-    return "Resale demand generally reflects overall segment dynamics rather than brand-specific premiums."
+        return (
+            "Toyota vehicles typically command strong used-market demand, "
+            "supporting above-average resale value."
+        )
+    return (
+        "Resale demand generally reflects overall segment dynamics rather than brand-specific premiums."
+    )
 
 
 def tool_depreciation(brand, model):
-    return "Vehicles in this segment typically experience steeper depreciation in early years followed by gradual value stabilisation over time."
+    return (
+        "Vehicles in this segment typically experience steeper depreciation in early years, "
+        "followed by gradual value stabilisation over time."
+    )
 
 # =====================================================
 # LOAD ARTIFACTS
@@ -81,6 +110,7 @@ def load_artifacts():
     lookup = pd.read_csv("models/brand_model_lookup_50.csv")
     return pipe, bm, b, lookup
 
+
 pipe, bm, b, brand_model_lookup = load_artifacts()
 
 # =====================================================
@@ -90,9 +120,11 @@ def lookup_new_price(brand, model):
     row_bm = bm[(bm["Brand"] == brand) & (bm["Model"] == model)]
     if len(row_bm):
         return float(row_bm["New_Price_bm"].iloc[0])
+
     row_b = b[b["Brand"] == brand]
     if len(row_b):
         return float(row_b["New_Price_b"].iloc[0])
+
     return float("nan")
 
 # =====================================================
@@ -120,6 +152,7 @@ def make_features(brand, model, age, km):
 # =====================================================
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+
 if "vehicle_data" not in st.session_state:
     st.session_state.vehicle_data = {}
 
@@ -151,15 +184,16 @@ with tab1:
 
         if np.isnan(new_price):
             st.error("Brand/Model not in training data")
-            st.stop()
+        else:
+            X = make_features(brand, model, age, km)
+            log_ret = float(pipe.predict(X)[0])
+            retention = np.exp(log_ret)
+            pred_price = retention * new_price
 
-        X = make_features(brand, model, age, km)
-        log_ret = float(pipe.predict(X)[0])
-        retention = np.exp(log_ret)
-        pred_price = retention * new_price
-
-        st.success(f"Estimated Price: A$ {pred_price:,.0f}")
-        st.caption(f"Retention: {retention:.3f} | New Price Proxy: A$ {new_price:,.0f}")
+            st.success(f"Estimated Price: A$ {pred_price:,.0f}")
+            st.caption(
+                f"Retention: {retention:.3f} | New Price Proxy: A$ {new_price:,.0f}"
+            )
 
 # =====================================================
 # TAB 2 — DEAL ADVISOR
@@ -175,7 +209,9 @@ with tab2:
     user_input = st.chat_input("Paste listing text or answer questions…")
 
     if user_input:
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        st.session_state.chat_history.append(
+            {"role": "user", "content": user_input}
+        )
 
         extract_prompt = f"""
 Extract vehicle details from the message.
@@ -200,32 +236,35 @@ Return JSON only:
         )
 
         try:
-            parsed = safe_json_parse(resp.choices[0].message.content)
-            st.session_state.vehicle_data.update(parsed.get("extracted_data", {}))
+            parsed_llm = safe_json_parse(resp.choices[0].message.content)
+            st.session_state.vehicle_data.update(
+                parsed_llm.get("extracted_data", {})
+            )
         except:
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": "Could not parse details. Please rephrase."
+                "content": "I couldn’t parse that. Could you rephrase?"
             })
 
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    required_fields = ["Brand", "Model", "Year", "Kilometres"]
-
+    # -------------------------------------------------
+    # VALIDATION & GATING
+    # -------------------------------------------------
     parsed = {}
     invalid_fields = []
 
-    # Brand & Model: must be non-empty strings
+    # Brand & Model
     for field in ["Brand", "Model"]:
-        value = st.session_state.vehicle_data.get(field)
-        if isinstance(value, str) and value.strip():
-            parsed[field] = value.strip()
+        v = st.session_state.vehicle_data.get(field)
+        if isinstance(v, str) and v.strip():
+            parsed[field] = v.strip()
         else:
             invalid_fields.append(field)
 
-    # Year & Kilometres: must be numeric
+    # Year & Kilometres
     year = parse_numeric(st.session_state.vehicle_data.get("Year"))
     kms = parse_numeric(st.session_state.vehicle_data.get("Kilometres"))
 
@@ -239,39 +278,48 @@ Return JSON only:
     else:
         parsed["Kilometres"] = int(kms)
 
-    # If anything is missing or unusable → nudge user
     if invalid_fields:
         st.chat_message("assistant").write(
             f"I just need the following to continue: {', '.join(invalid_fields)}"
         )
-        st.stop()
+    else:
+        brand = parsed["Brand"]
+        model = parsed["Model"]
+        year = parsed["Year"]
+        kms = parsed["Kilometres"]
 
-
-        age = datetime.now().year - int(year)
+        age = datetime.now().year - year
         new_price = lookup_new_price(brand, model)
 
-        X = make_features(brand, model, age, kms)
-        log_ret = float(pipe.predict(X)[0])
-        retention = np.exp(log_ret)
-        pred_price = retention * new_price
+        if np.isnan(new_price):
+            st.chat_message("assistant").write(
+                "I don’t have sufficient market data for this Brand / Model."
+            )
+        else:
+            X = make_features(brand, model, age, kms)
+            log_ret = float(pipe.predict(X)[0])
+            retention = np.exp(log_ret)
+            pred_price = retention * new_price
 
-        listed_price = st.number_input(
-            "Listed Price (optional)",
-            min_value=0,
-            value=int(pred_price),
-            step=500
-        )
+            listed_price = st.number_input(
+                "Listed Price (optional)",
+                min_value=0,
+                value=int(pred_price),
+                step=500
+            )
 
-        gap_pct = round((listed_price - pred_price) / pred_price * 100, 1)
+            gap_pct = round(
+                (listed_price - pred_price) / pred_price * 100, 1
+            )
 
-        explanation_prompt = f"""
+            explanation_prompt = f"""
 You are an automotive market advisor.
 
 VEHICLE
 Brand: {brand}
 Model: {model}
 Age: {age}
-Kilometres: {int(kms)}
+Kilometres: {kms}
 
 PRICING
 New Price: {int(new_price)}
@@ -296,13 +344,13 @@ Explain price, classify deal (Bargain/Fair/Overpriced),
 explain gap, and advise next steps.
 """
 
-        with st.spinner("Generating explanation…"):
-            expl = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": explanation_prompt}],
-                temperature=0.3
-            )
+            with st.spinner("Generating explanation…"):
+                expl = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": explanation_prompt}],
+                    temperature=0.3
+                )
 
-        st.divider()
-        st.markdown("### 🧠 Market Explanation")
-        st.markdown(expl.choices[0].message.content)
+            st.divider()
+            st.markdown("### 🧠 Market Explanation")
+            st.markdown(expl.choices[0].message.content)
