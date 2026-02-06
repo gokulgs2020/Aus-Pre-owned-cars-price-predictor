@@ -212,22 +212,40 @@ Return JSON only:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    required = ["Brand", "Model", "Year", "Kilometres"]
-    missing = [k for k in required if k not in st.session_state.vehicle_data]
+    required_fields = ["Brand", "Model", "Year", "Kilometres"]
 
-    if missing:
-        st.info(f"Missing: {', '.join(missing)}")
+    parsed = {}
+    invalid_fields = []
 
-    if not missing:
-        d = st.session_state.vehicle_data
-        brand = d["Brand"]
-        model = d["Model"]
-        year = parse_numeric(d["Year"])
-        kms = parse_numeric(d["Kilometres"])
+    # Brand & Model: must be non-empty strings
+    for field in ["Brand", "Model"]:
+        value = st.session_state.vehicle_data.get(field)
+        if isinstance(value, str) and value.strip():
+            parsed[field] = value.strip()
+        else:
+            invalid_fields.append(field)
 
-        if year is None or kms is None:
-            st.error("Could not parse Year or Kilometres")
-            st.stop()
+    # Year & Kilometres: must be numeric
+    year = parse_numeric(st.session_state.vehicle_data.get("Year"))
+    kms = parse_numeric(st.session_state.vehicle_data.get("Kilometres"))
+
+    if year is None:
+        invalid_fields.append("Year")
+    else:
+        parsed["Year"] = int(year)
+
+    if kms is None:
+        invalid_fields.append("Kilometres")
+    else:
+        parsed["Kilometres"] = int(kms)
+
+    # If anything is missing or unusable → nudge user
+    if invalid_fields:
+        st.chat_message("assistant").write(
+            f"I just need the following to continue: {', '.join(invalid_fields)}"
+        )
+        st.stop()
+
 
         age = datetime.now().year - int(year)
         new_price = lookup_new_price(brand, model)
