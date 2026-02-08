@@ -423,18 +423,26 @@ OUTPUT RULES:
 
 FORMAT (mandatory):
 
-### 🧾 What do we think about this listed price
+#### 🧾 Verdict on the deal
 **<ONE of: Great Bargain | Good Offer | Fair / On Par with Market | Slightly Overpriced | Significantly Overpriced>**
 
-### 💰 Why this price makes sense
+#### 💰 Does the listed price make sense?
+You are explaining THIS specific vehicle to THIS buyer.
+
+You must:
+- Refer explicitly to the vehicle by brand and model
+- Refer explicitly to the predicted price, retention %, age and kilometres
+- Avoid generic language like "this segment" without tying it back to the vehicle
+- Speak as if advising a real buyer evaluating this exact listing
+
+When explaining prices, always anchor statements to:
+“for this {brand} {model} with {age} years and {kms} km…”
+
+#### 📊 How the listed price compares
 - ...
 - ...
 
-### 📊 How the listed price compares
-- ...
-- ...
-
-### 🧭 What you should do next
+#### 🧭 What you should do next
 - ...
 - ...
 """
