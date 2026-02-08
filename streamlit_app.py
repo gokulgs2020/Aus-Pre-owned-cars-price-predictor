@@ -9,7 +9,7 @@ from datetime import datetime
 from openai import OpenAI
 
 # =====================================================
-# CONFIG
+# CONFIG (must be first Streamlit call)
 # =====================================================
 st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
 
@@ -48,56 +48,67 @@ def parse_numeric(value):
     return None
 
 
-def safe_json_parse(text):
-    t = text.strip()
+def safe_json_parse(text: str):
+    """
+    Parses JSON returned by the LLM, handling ```json fences if present.
+    """
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("Empty LLM response")
+
     if t.startswith("```"):
-        t = t.split("```")[1]
+        parts = t.split("```")
+        t = parts[1] if len(parts) > 1 else parts[0]
+        t = t.strip()
         if t.startswith("json"):
-            t = t[4:]
+            t = t[4:].strip()
+
     return json.loads(t.strip())
 
+
+def clean_llm_markdown(text: str) -> str:
+    """
+    Keeps markdown structure, removes empty lines, avoids per-character line breaks.
+    """
+    if not text:
+        return ""
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines)
+
+
 # =====================================================
-# PERCEPTION TOOLS
+# PERCEPTION TOOLS (controlled text)
 # =====================================================
 def tool_reliability(brand, model):
-    if brand.lower() == "toyota":
+    if str(brand).lower() == "toyota":
         return (
-            "Toyota models are widely regarded for mechanical reliability and "
-            "long-term durability, with fewer major ownership issues than many peers."
+            "Toyota models are widely regarded for mechanical reliability and long-term durability, "
+            "with fewer major ownership issues than many peers."
         )
     return (
-        "There are no strong signals suggesting unusual reliability risks; "
-        "expectations generally align with segment norms."
+        "There are no strong signals suggesting unusual reliability risks; expectations generally align with segment norms."
     )
 
 
 def tool_maintenance(brand, model):
-    if brand.lower() == "toyota":
+    if str(brand).lower() == "toyota":
         return (
-            "Toyota benefits from a broad service network, readily available spare parts, "
-            "and relatively low ownership friction."
+            "Toyota benefits from a broad service network, readily available spare parts, and relatively low ownership friction."
         )
-    return (
-        "Maintenance and servicing requirements are broadly in line with segment expectations."
-    )
+    return "Maintenance and servicing requirements are broadly in line with segment expectations."
 
 
 def tool_resale(brand, model):
-    if brand.lower() == "toyota":
-        return (
-            "Toyota vehicles typically command strong used-market demand, "
-            "supporting above-average resale value."
-        )
-    return (
-        "Resale demand generally reflects overall segment dynamics rather than brand-specific premiums."
-    )
+    if str(brand).lower() == "toyota":
+        return "Toyota vehicles typically command strong used-market demand, supporting above-average resale value."
+    return "Resale demand generally reflects overall segment dynamics rather than brand-specific premiums."
 
 
 def tool_depreciation(brand, model):
     return (
-        "Vehicles in this segment typically experience steeper depreciation in early years, "
-        "followed by gradual value stabilisation over time."
+        "Vehicles in this segment typically experience steeper depreciation in early years, followed by gradual value stabilisation over time."
     )
+
 
 # =====================================================
 # LOAD ARTIFACTS
@@ -108,6 +119,14 @@ def load_artifacts():
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
     lookup = pd.read_csv("models/brand_model_lookup_50.csv")
+
+    # normalize keys to reduce lookup mismatches
+    for df_ in (bm, b, lookup):
+        if "Brand" in df_.columns:
+            df_["Brand"] = df_["Brand"].astype(str).str.strip()
+        if "Model" in df_.columns:
+            df_["Model"] = df_["Model"].astype(str).str.strip()
+
     return pipe, bm, b, lookup
 
 
@@ -117,6 +136,9 @@ pipe, bm, b, brand_model_lookup = load_artifacts()
 # PRICE LOOKUP
 # =====================================================
 def lookup_new_price(brand, model):
+    brand = str(brand).strip()
+    model = str(model).strip()
+
     row_bm = bm[(bm["Brand"] == brand) & (bm["Model"] == model)]
     if len(row_bm):
         return float(row_bm["New_Price_bm"].iloc[0])
@@ -127,25 +149,27 @@ def lookup_new_price(brand, model):
 
     return float("nan")
 
+
 # =====================================================
-# FEATURE BUILDER
+# FEATURE BUILDER (keep as-is for your model)
 # =====================================================
 def make_features(brand, model, age, km):
     return pd.DataFrame([{
-        "Age": age,
-        "log_km": np.log1p(km),
+        "Age": float(age),
+        "log_km": float(np.log1p(km)),
         "FuelConsumption": 7.5,
         "CylindersinEngine": 4,
         "Seats": 5,
-        "age_kilometer_interaction": (age * km) / 10000,
-        "Brand": brand,
-        "Model": model,
+        "age_kilometer_interaction": (float(age) * float(km)) / 10000.0,
+        "Brand": str(brand).strip(),
+        "Model": str(model).strip(),
         "UsedOrNew": "USED",
         "DriveType": "FWD",
         "BodyType": "Sedan",
         "Transmission": "Automatic",
         "FuelType": "Gasoline",
     }])
+
 
 # =====================================================
 # SESSION STATE
@@ -167,11 +191,13 @@ tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 Deal Advisor"])
 with tab1:
     st.header("Price Estimator")
 
-    brands = sorted(brand_model_lookup["Brand"].unique())
+    brands = sorted(brand_model_lookup["Brand"].dropna().unique())
     brand = st.selectbox("Brand", brands)
 
     models = sorted(
-        brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"].unique()
+        brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"]
+        .dropna()
+        .unique()
     )
     model = st.selectbox("Model", models)
 
@@ -179,7 +205,7 @@ with tab1:
     km = st.number_input("Kilometres", 0, 200000, 60000)
 
     if st.button("Estimate Price"):
-        age = datetime.now().year - year
+        age = datetime.now().year - int(year)
         new_price = lookup_new_price(brand, model)
 
         if np.isnan(new_price):
@@ -187,12 +213,12 @@ with tab1:
         else:
             X = make_features(brand, model, age, km)
             log_ret = float(pipe.predict(X)[0])
-            retention = np.exp(log_ret)
-            pred_price = retention * new_price
+            retention = float(np.exp(log_ret))
+            pred_price = float(retention * new_price)
 
             st.success(f"Estimated Price: AU $ {pred_price:,.0f}")
             st.caption(
-                f"Retention %: {retention*100:.1}% | Typical Price of a new car: AU $ {new_price:,.0f}"
+                f"Retention: {retention * 100:.1f}% | Typical new price: AU $ {new_price:,.0f}"
             )
 
 # =====================================================
@@ -206,12 +232,12 @@ with tab2:
         st.session_state.vehicle_data = {}
         st.rerun()
 
-    user_input = st.chat_input("Paste the details of your the car listing (Brand, Model, Kms driven and listed price in AUD)")
+    user_input = st.chat_input(
+        "Paste the listing details (Brand, Model, Year, Kms, Listed price in AUD)."
+    )
 
     if user_input:
-        st.session_state.chat_history.append(
-            {"role": "user", "content": user_input}
-        )
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
 
         extract_prompt = f"""
 Extract vehicle details from the message.
@@ -222,11 +248,20 @@ Current known data:
 Message:
 {user_input}
 
-Required:
+Required fields (extract if present):
 Brand, Model, Year, Kilometres, Listed Price
 
 Return JSON only:
-{{"extracted_data": {{}}}}
+{{
+  "extracted_data": {{
+    "Brand": "",
+    "Model": "",
+    "Year": "",
+    "Kilometres": "",
+    "Listed Price": ""
+  }}
+}}
+Do not include markdown code fences.
 """
 
         resp = client.chat.completions.create(
@@ -237,21 +272,20 @@ Return JSON only:
 
         try:
             parsed_llm = safe_json_parse(resp.choices[0].message.content)
-            st.session_state.vehicle_data.update(
-                parsed_llm.get("extracted_data", {})
-            )
-        except:
+            st.session_state.vehicle_data.update(parsed_llm.get("extracted_data", {}))
+        except Exception:
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": "I couldn’t understand that. Could you rephrase please?"
+                "content": "I couldn’t extract the details. Please rephrase with Brand, Model, Year, Kms, and Listed Price."
             })
 
+    # show chat history
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
     # -------------------------------------------------
-    # VALIDATION & GATING
+    # VALIDATION & GATING (including Listed Price)
     # -------------------------------------------------
     parsed = {}
     missing_fields = []
@@ -264,9 +298,10 @@ Return JSON only:
         else:
             missing_fields.append(field)
 
-    # Year & Kilometres
+    # Year, Kilometres, Listed Price (numeric)
     year = parse_numeric(st.session_state.vehicle_data.get("Year"))
     kms = parse_numeric(st.session_state.vehicle_data.get("Kilometres"))
+    listed_price = parse_numeric(st.session_state.vehicle_data.get("Listed Price"))
 
     if year is None:
         missing_fields.append("Year")
@@ -278,159 +313,112 @@ Return JSON only:
     else:
         parsed["Kilometres"] = int(kms)
 
-    # 🚨 LISTED PRICE REQUIRED FROM CHAT
-    listed_price = parse_numeric(st.session_state.vehicle_data.get("Listed Price"))
     if listed_price is None:
         missing_fields.append("Listed Price")
     else:
         parsed["Listed Price"] = int(listed_price)
 
-
-    # -------------------------------------------------
-    # ASK USER IF DATA MISSING
-    # -------------------------------------------------
     if missing_fields:
         st.chat_message("assistant").write(
-            f"I still need the following: {', '.join(missing_fields)}."
+            f"I still need: {', '.join(missing_fields)}."
+        )
+        st.stop()
+
+    # -------------------------------------------------
+    # RUN VALUATION + EXPLANATION
+    # -------------------------------------------------
+    brand = parsed["Brand"]
+    model = parsed["Model"]
+    year = parsed["Year"]
+    kms = parsed["Kilometres"]
+    listed_price = parsed["Listed Price"]
+
+    age = datetime.now().year - int(year)
+    new_price = lookup_new_price(brand, model)
+
+    if np.isnan(new_price):
+        st.chat_message("assistant").write(
+            "I don’t have sufficient market data for this Brand / Model. Try a more common Brand/Model."
+        )
+        st.stop()
+
+    st.chat_message("assistant").write(
+        f"Got it 👍 {brand} {model}, {kms:,} km, listed at AU $ {listed_price:,}. Evaluating…"
+    )
+
+    X = make_features(brand, model, age, kms)
+    log_ret = float(pipe.predict(X)[0])
+    retention = float(np.exp(log_ret))
+    pred_price = float(retention * new_price)
+    gap_pct = round(((listed_price - pred_price) / pred_price) * 100, 1)
+
+    explanation_prompt = f"""
+You are an automotive market advisor supporting a used-car buyer.
+
+STRICT RULES:
+- Use ONLY the information provided below
+- Do NOT invent facts, statistics, URLs, or assumptions
+- Keep the response professional, concise, and structured
+- Use clean Markdown exactly as requested
+
+VEHICLE DETAILS
+Brand: {brand}
+Model: {model}
+Vehicle Age (years): {age}
+Kilometres Driven: {kms}
+
+PRICING CONTEXT
+Typical New Price: AU ${int(new_price)}
+Model-Predicted Price: AU ${int(pred_price)}
+Implied Retention: {round(retention*100,1)}%
+Seller Listed Price: AU ${int(listed_price)}
+Price Gap vs Prediction: {gap_pct}%
+
+MARKET CONTEXT (REFERENCE INFORMATION)
+Reliability:
+{tool_reliability(brand, model)}
+
+Maintenance & After-Sales:
+{tool_maintenance(brand, model)}
+
+Resale Perception:
+{tool_resale(brand, model)}
+
+Depreciation Pattern:
+{tool_depreciation(brand, model)}
+
+OUTPUT RULES:
+- Use headings and bullets exactly in the format below
+- Each section MUST have exactly 2 bullet points
+- Each bullet point MUST be one sentence only
+
+FORMAT (mandatory):
+
+### 🧾 What do we think about this listed price
+**<ONE of: Great Bargain | Good Offer | Fair / On Par with Market | Slightly Overpriced | Significantly Overpriced>**
+
+### 💰 Why this price makes sense
+- ...
+- ...
+
+### 📊 How the listed price compares
+- ...
+- ...
+
+### 🧭 What you should do next
+- ...
+- ...
+"""
+
+    with st.spinner("Generating explanation…"):
+        expl = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": explanation_prompt}],
+            temperature=0.4
         )
 
-    # -------------------------------------------------
-    # RUN VALUATION
-    # -------------------------------------------------
-    else:
-        brand = parsed["Brand"]
-        model = parsed["Model"]
-        year = parsed["Year"]
-        kms = parsed["Kilometres"]
-        listed_price = parsed["Listed Price"]
+    st.divider()
+    st.markdown("### 🧠 Market Explanation")
 
-        age = datetime.now().year - year
-        new_price = lookup_new_price(brand, model)
-
-        if np.isnan(new_price):
-            st.chat_message("assistant").write(
-                "I don’t have sufficient market data for this Brand / Model."
-            )
-        else:
-            # quick acknowledgement → feels premium
-            st.chat_message("assistant").write(
-                f"Got it 👍 {brand} {model}, {kms:,} km, listed at AU $ {listed_price:,}. Let me evaluate the deal."
-            )
-
-            X = make_features(brand, model, age, kms)
-            log_ret = float(pipe.predict(X)[0])
-            retention = np.exp(log_ret)
-            pred_price = retention * new_price
-
-            gap_pct = round(
-                (listed_price - pred_price) / pred_price * 100, 1
-            )
-
-            explanation_prompt = f"""
-            You are an automotive market advisor supporting a used-car buyer.
-            Your role is to explain pricing decisions clearly, cautiously, and evidence-based.
-
-            You must:
-            - Use ONLY the information provided below
-            - Avoid absolute claims or guarantees
-            - Avoid adding facts not present in the inputs
-            - Keep the explanation concise and structured
-
-            =====================================
-            VEHICLE DETAILS
-            Brand: {brand}
-            Model: {model}
-            Vehicle Age (years): {age}
-            Kilometres Driven: {kms}
-
-            =====================================
-            PRICING CONTEXT
-            Typical New Price: AU ${int(new_price)}
-            Model-Predicted Price: AU ${int(pred_price)}
-            Implied Retention: {round(retention*100,1)}%
-            Seller Listed Price: AU ${int(listed_price)}
-            Price Gap vs Prediction: {gap_pct}%
-
-            =====================================
-            MARKET CONTEXT (REFERENCE INFORMATION)
-
-            Reliability:
-            {tool_reliability(brand, model)}
-
-            Maintenance & After-Sales:
-            {tool_maintenance(brand, model)}
-
-            Resale Perception:
-            {tool_resale(brand, model)}
-
-            Depreciation Pattern:
-            {tool_depreciation(brand, model)}
-
-            =====================================
-            TASKS
-
-            1️⃣ Verdict on the listed price  
-            Classify the deal into ONE of the following:
-            - Great Bargain
-            - Good Offer
-            - Fair / On Par with Market
-            - Slightly Overpriced
-            - Significantly Overpriced
-
-            Base this primarily on the price gap, adjusted for market context.
-
-            2️⃣ Price Explanation  
-            In 2–3 bullet points, explain:
-            - Why the predicted price is at this level (new price × retention)
-            - How reliability, maintenance, resale perception, and depreciation influence this valuation for this particular {brand}
-
-            3️⃣ Gap Interpretation  
-            In 2–3 bullet points, explain:
-            - Why the listed price is above or below the model prediction
-            - Whether the gap appears justified given market context
-
-            4️⃣ Recommended Next Steps  
-            In 2–3 bullet points:
-            - If the deal is a bargain → advise proceeding but recommend standard checks (service history, accident damage, inspection to probe why there is a bargain)
-            - If the deal is fair → advise negotiation using model price as anchor
-            - If the deal is overpriced → advise negotiation strategy using depreciation and resale arguments and suggest waiting or evaluating other options
-
-            =====================================
-            OUTPUT FORMAT
-
-            Use the following format exactly:
-
-            **What do we think about this listed price:** <one label>
-
-            **Why this price makes sense**
-            - ...
-            - ...
-
-            **How the listed price compares**
-            - ...
-            - ...
-
-            **What you should do next**
-            - ...
-            - ...
-            """
-
-            with st.spinner("Generating explanation…"):
-                expl = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": explanation_prompt}],
-                    temperature=0.5
-                )
-
-            st.divider()
-
-            def clean_llm_text(text: str) -> str:
-                return " ".join(text.split())
-        
-            st.markdown("### 🧠 Market Explanation")
-
-            cleaned = clean_llm_text(expl.choices[0].message.content)
-            st.write(cleaned)
-
-
-
+    cleaned = clean_llm_markdown(expl.choices[0].message.content)
+    st.markdown(cleaned)
