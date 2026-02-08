@@ -1,0 +1,273 @@
+[
+  {
+    "source": "Drive.com.au",
+    "topic": "Resale Value",
+    "brands": [
+      "Nissan",
+      "Tesla",
+      "Toyota",
+      "Suzuki",
+      "Hyundai",
+      "Isuzu",
+      "Mazda",
+      "Skoda",
+      "Volvo",
+      "Jeep",
+      "Subaru"
+    ],
+    "segments": [
+      "Passenger Cars",
+      "SUVs",
+      "Utes"
+    ],
+    "text": "In 2023, various models from brands like Nissan, Tesla, and Toyota are noted for their strong resale value in Australia. Resale value can vary significantly based on factors such as the duration of ownership and the condition of the vehicle at resale. The data indicates that certain models, particularly electric vehicles and popular SUVs, tend to retain their value better than others."
+  },
+  {
+    "source": "Drive.com.au",
+    "topic": "Depreciation",
+    "brands": [
+      "Toyota",
+      "Hyundai",
+      "Mazda"
+    ],
+    "segments": [
+      "SUVs",
+      "Passenger Cars"
+    ],
+    "text": "Depreciation rates can differ widely among vehicle models, with some brands like Toyota consistently showing lower depreciation. Factors influencing depreciation include market demand, vehicle condition, and the model's reputation for reliability. This information is crucial for both new and used car buyers when considering long-term investment."
+  },
+  {
+    "source": "Drive.com.au",
+    "topic": "Reliability",
+    "brands": [
+      "Toyota",
+      "Nissan",
+      "Subaru"
+    ],
+    "segments": [
+      "SUVs",
+      "Passenger Cars"
+    ],
+    "text": "Reliability is a key factor affecting resale value, with brands like Toyota and Subaru often recognized for their dependable performance. Vehicles that are perceived as reliable tend to have better resale values, as buyers are more willing to invest in models known for their longevity and low maintenance costs."
+  },
+  {
+    "source": "Drive.com.au",
+    "topic": "Maintenance",
+    "brands": [
+      "Toyota",
+      "Hyundai",
+      "Mazda"
+    ],
+    "segments": [
+      "Passenger Cars",
+      "SUVs"
+    ],
+    "text": "The cost of maintenance can significantly impact a vehicle's overall value and desirability in the used car market. Brands like Toyota and Hyundai are often favored for their lower maintenance costs, which can enhance their appeal to potential buyers looking for economical options."
+  },
+  {
+    "source": "JR Auto Service",
+    "topic": "Resale Value",
+    "brands": [
+      "Toyota",
+      "Suzuki",
+      "Ford"
+    ],
+    "segments": [
+      "SUVs",
+      "Utes"
+    ],
+    "text": "Certain brands, particularly Toyota, are known for their strong resale value, which can significantly reduce long-term depreciation costs. Models like the LandCruiser and HiLux are particularly noted for retaining their value well in the market."
+  },
+  {
+    "source": "JR Auto Service",
+    "topic": "Maintenance Costs",
+    "brands": [
+      "Toyota",
+      "Mazda",
+      "Hyundai",
+      "Kia"
+    ],
+    "segments": [
+      "General"
+    ],
+    "text": "Maintenance costs can vary widely among brands. Toyota, Mazda, Hyundai, and Kia are recognized for their lower maintenance expenses, which contribute positively to the overall cost of ownership."
+  },
+  {
+    "source": "JR Auto Service",
+    "topic": "Reliability",
+    "brands": [
+      "Toyota",
+      "Mazda",
+      "Subaru"
+    ],
+    "segments": [
+      "General"
+    ],
+    "text": "Reliability is a crucial factor for many buyers. Brands like Toyota and Mazda consistently rank high in reliability surveys, indicating fewer mechanical issues and longer vehicle longevity."
+  },
+  {
+    "source": "JR Auto Service",
+    "topic": "Depreciation",
+    "brands": [
+      "MG",
+      "Tesla",
+      "Mazda"
+    ],
+    "segments": [
+      "General"
+    ],
+    "text": "Some brands experience higher depreciation rates, which can impact the long-term value of the vehicle. For instance, certain models from MG and Tesla have been noted for significant value loss within a few years."
+  },
+  {
+    "source": "JR Auto Service",
+    "topic": "Parts Availability",
+    "brands": [
+      "Toyota",
+      "Ford",
+      "Mitsubishi"
+    ],
+    "segments": [
+      "General"
+    ],
+    "text": "The availability of spare parts is essential for maintenance and repairs. Brands like Toyota and Ford have extensive dealer networks, ensuring that parts are readily available, which can minimize downtime and repair costs."
+  },
+  {
+    "source": "Recharged",
+    "topic": "Reliability",
+    "brands": [
+      "Lexus",
+      "Toyota",
+      "Subaru",
+      "Honda",
+      "Mazda",
+      "Buick"
+    ],
+    "segments": [
+      "Mainstream",
+      "Luxury"
+    ],
+    "text": "Japanese brands are noted for their long-term reliability, with Lexus and Toyota often leading in dependability rankings. Subaru is recognized for its practical vehicles that are well-regarded for safety and durability."
+  },
+  {
+    "source": "Recharged",
+    "topic": "Resale Value",
+    "brands": [
+      "Toyota",
+      "Lexus",
+      "Subaru",
+      "Honda",
+      "Tesla"
+    ],
+    "segments": [
+      "Mainstream",
+      "Luxury"
+    ],
+    "text": "Brands like Toyota and Lexus consistently maintain strong resale values, while Subaru and Honda also perform well in retaining value. Tesla's resale market has cooled but popular models still sell quickly when priced appropriately."
+  },
+  {
+    "source": "Recharged",
+    "topic": "Maintenance",
+    "brands": [
+      "Toyota",
+      "Honda",
+      "Subaru",
+      "Mazda",
+      "Hyundai",
+      "Kia"
+    ],
+    "segments": [
+      "Mainstream"
+    ],
+    "text": "Japanese brands are known for lower maintenance costs and fewer surprises, with long service intervals. Hyundai and Kia offer strong warranties that help mitigate early ownership costs, especially for EVs."
+  },
+  {
+    "source": "Recharged",
+    "topic": "Depreciation",
+    "brands": [
+      "Buick",
+      "GM models"
+    ],
+    "segments": [
+      "Mainstream"
+    ],
+    "text": "Some brands, like Buick, may depreciate faster when new, which can make used models more appealing as value buys. It's often more cost-effective to consider well-maintained used vehicles from these brands."
+  },
+  {
+    "source": "Recharged",
+    "topic": "EV Reliability",
+    "brands": [
+      "Tesla",
+      "Hyundai",
+      "Kia"
+    ],
+    "segments": [
+      "Electric"
+    ],
+    "text": "While EVs generally report more issues than gas vehicles, brands like Tesla are recognized for their strong battery management and charging infrastructure. Hyundai and Kia are also becoming compelling options for used EVs due to their warranties and improving technology."
+  },
+  {
+    "source": "MyCarChoice",
+    "topic": "resale",
+    "brands": [
+      "Toyota",
+      "Mazda",
+      "Honda",
+      "Subaru",
+      "Mitsubishi",
+      "Ford",
+      "Kia",
+      "Volkswagen",
+      "Hyundai"
+    ],
+    "segments": [
+      "used cars"
+    ],
+    "text": "Several brands are recognized for their strong resale value in the used car market, particularly in Australia. Toyota is noted for its reliability and low maintenance costs, making it a top choice for resale. Other brands like Subaru, Mazda, and Honda also maintain good resale values due to their reputation for durability and practicality."
+  },
+  {
+    "source": "MyCarChoice",
+    "topic": "maintenance",
+    "brands": [
+      "Toyota",
+      "Honda",
+      "Mazda",
+      "Subaru",
+      "Mitsubishi",
+      "Kia",
+      "Hyundai"
+    ],
+    "segments": [
+      "used cars"
+    ],
+    "text": "Brands such as Toyota, Honda, and Mazda are known for their low maintenance costs, which contributes to their appeal in the used car market. Vehicles from these manufacturers often require less frequent repairs and are built to last, enhancing their desirability among second-hand buyers."
+  },
+  {
+    "source": "MyCarChoice",
+    "topic": "reliability",
+    "brands": [
+      "Toyota",
+      "Subaru",
+      "Honda",
+      "Mazda"
+    ],
+    "segments": [
+      "used cars"
+    ],
+    "text": "Reliability is a key factor for many used car buyers, with brands like Toyota and Subaru leading the way. These manufacturers have established a reputation for producing vehicles that endure over time, which in turn supports higher resale values and buyer confidence."
+  },
+  {
+    "source": "MyCarChoice",
+    "topic": "depreciation",
+    "brands": [
+      "Toyota",
+      "Mazda",
+      "Honda",
+      "Kia",
+      "Hyundai"
+    ],
+    "segments": [
+      "used cars"
+    ],
+    "text": "Depreciation rates vary among brands, with Toyota generally experiencing less depreciation compared to others. Brands like Mazda and Honda also retain their value well, while Kia and Hyundai have improved their standing in the market, offering vehicles that depreciate at a slower rate."
+  }
+]
