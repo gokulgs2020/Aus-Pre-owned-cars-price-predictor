@@ -66,14 +66,36 @@ def safe_json_parse(text: str):
     return json.loads(t.strip())
 
 
+import re
+
 def clean_llm_markdown(text: str) -> str:
     """
-    Keeps markdown structure, removes empty lines, avoids per-character line breaks.
+    Cleans LLM output for Streamlit:
+    - removes zero-width / non-breaking spaces
+    - collapses broken inline spacing
+    - preserves paragraph & bullet structure
     """
     if not text:
         return ""
-    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-    return "\n".join(lines)
+
+    # Remove zero-width & non-breaking spaces
+    text = (
+        text
+        .replace("\u200b", "")
+        .replace("\u00a0", " ")
+    )
+
+    # Clean up lines
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    # Rejoin with proper paragraph breaks
+    cleaned = "\n\n".join(lines)
+
+    # Final whitespace normalisation (inside lines)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+
+    return cleaned.strip()
+
 
 
 # =====================================================
