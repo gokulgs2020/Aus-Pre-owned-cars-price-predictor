@@ -254,7 +254,7 @@ with tab1:
     year = st.number_input("Year", 2000, datetime.now().year, 2020)
     km = st.number_input("Kilometres", 0, 200000, 60000)
 
-    if st.button("Estimate Price"):
+    if st.button("Estimate Price",key="estimate_price_btn"):
         age = datetime.now().year - int(year)
         new_price = lookup_new_price(brand, model)
 
@@ -277,7 +277,7 @@ with tab1:
 with tab2:
     st.header("Deal Advisor")
 
-    if st.button("🔄 Restart Conversation"):
+    if st.button("🔄 Restart Conversation",key="restart_conversation_btn"):
         st.session_state.chat_history = []
         st.session_state.vehicle_data = {}
         st.rerun()
@@ -497,7 +497,7 @@ When explaining prices, always anchor statements to:
 with tab2:
     st.header("Deal Advisor")
 
-    if st.button("🔄 Restart Conversation"):
+    if st.button("🔄 Restart Conversation",key="restart_conversation_btn"):
         st.session_state.chat_history = []
         st.session_state.vehicle_data = {}
         st.rerun()
