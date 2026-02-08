@@ -132,6 +132,19 @@ def load_artifacts():
 
 pipe, bm, b, brand_model_lookup = load_artifacts()
 
+def normalize_text(x):
+    if not x:
+        return ""
+    return (
+        str(x)
+        .lower()
+        .strip()
+        .replace("-", "")
+        .replace(" ", "")
+        .replace("_", "")
+    )
+
+
 # =====================================================
 # PRICE LOOKUP
 # =====================================================
@@ -350,18 +363,6 @@ Do not include markdown code fences.
 
     age = datetime.now().year - int(year)
     new_price = lookup_new_price(brand, model)
-
-    def normalize_text(x):
-        if not x:
-            return ""
-        return (
-            str(x)
-            .lower()
-            .strip()
-            .replace("-", "")
-            .replace(" ", "")
-            .replace("_", "")
-        )
 
 
     if np.isnan(new_price):
