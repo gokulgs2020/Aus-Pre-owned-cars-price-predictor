@@ -11,7 +11,7 @@ from openai import OpenAI
 # =====================================================
 # CONFIG
 # =====================================================
-st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
+st.set_page_config(page_title="Preowned Car Deal Advisor", layout="centered")
 
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
@@ -21,128 +21,50 @@ if not api_key:
 client = OpenAI(api_key=api_key)
 
 # =====================================================
-# SOURCE KNOWLEDGE BASE (PROVIDED BY YOU)
+# LOAD MARKET SOURCES (CURATED KB)
 # =====================================================
-SOURCE_DATA = [
-    {
-        "source": "Drive.com.au",
-        "topic": "Resale Value",
-        "brands": ["Nissan","Tesla","Toyota","Suzuki","Hyundai","Isuzu","Mazda","Skoda","Volvo","Jeep","Subaru"],
-        "text": "In 2023, several brands including Toyota and Tesla demonstrated strong resale value in Australia, particularly for popular SUVs and EVs."
-    },
-    {
-        "source": "Drive.com.au",
-        "topic": "Depreciation",
-        "brands": ["Toyota","Hyundai","Mazda"],
-        "text": "Toyota generally shows lower depreciation than many competitors, supported by demand and brand reputation."
-    },
-    {
-        "source": "Drive.com.au",
-        "topic": "Reliability",
-        "brands": ["Toyota","Nissan","Subaru"],
-        "text": "Brands like Toyota and Subaru are recognised for dependable performance and longevity."
-    },
-    {
-        "source": "Drive.com.au",
-        "topic": "Maintenance",
-        "brands": ["Toyota","Hyundai","Mazda"],
-        "text": "Toyota and Hyundai are often favoured for lower maintenance costs, supporting used-car appeal."
-    },
-    {
-        "source": "JR Auto Service",
-        "topic": "Maintenance",
-        "brands": ["Toyota","Mazda","Hyundai","Kia"],
-        "text": "Toyota, Mazda and Hyundai are recognised for relatively low maintenance expenses over ownership."
-    },
-    {
-        "source": "MyCarChoice",
-        "topic": "Reliability",
-        "brands": ["Toyota","Subaru","Honda","Mazda"],
-        "text": "Toyota and Subaru lead in reliability perception among used car buyers, supporting buyer confidence."
-    },
-    {
-        "source": "MyCarChoice",
-        "topic": "Resale Value",
-        "brands": ["Toyota","Mazda","Honda","Subaru","Mitsubishi","Ford","Kia","Volkswagen","Hyundai"],
-        "text": "Toyota consistently maintains strong resale value due to reliability and low maintenance costs."
-    },
-    {
-        "source": "MyCarChoice",
-        "topic": "Depreciation",
-        "brands": ["Toyota","Mazda","Honda","Kia","Hyundai"],
-        "text": "Toyota generally depreciates less than peers, while Mazda and Honda also retain value well."
-    }
-]
+@st.cache_resource
+def load_market_sources():
+    with open("data/market_sources.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+MARKET_SOURCES = load_market_sources()
 
 # =====================================================
 # HELPERS
 # =====================================================
-def parse_numeric(value):
-    if value is None:
+def parse_numeric(x):
+    if x is None:
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        v = value.lower().replace(",", "").replace("$", "").replace("km", "").replace("kms", "")
-        v = v.replace("k", "000")
-        nums = re.findall(r"\d+", v)
-        return float("".join(nums)) if nums else None
+    if isinstance(x, (int, float)):
+        return float(x)
+    if isinstance(x, str):
+        x = x.lower().replace(",", "").replace("$", "").replace("kms", "").replace("km", "")
+        x = x.replace("k", "000")
+        nums = re.findall(r"\d+", x)
+        if nums:
+            return float("".join(nums))
     return None
 
 
-def safe_json_parse(text: str):
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.split("```")[1].strip()
-        if t.lower().startswith("json"):
-            t = t[4:].strip()
-    return json.loads(t)
-
-
 def normalize_text(x):
-    return str(x).strip().lower()
+    return str(x).lower().replace(" ", "").replace("-", "")
 
 
-# =====================================================
-# SOURCE LOOKUP ENGINE (DETERMINISTIC)
-# =====================================================
-def lookup_source(topic, brand):
-    brand = normalize_text(brand)
-    for item in SOURCE_DATA:
-        if item["topic"].lower() == topic.lower():
-            if brand in [b.lower() for b in item["brands"]]:
-                return {
-                    "text": item["text"],
-                    "source": item["source"]
-                }
-    # fallback
-    for item in SOURCE_DATA:
-        if item["topic"].lower() == topic.lower():
-            return {
-                "text": item["text"],
-                "source": item["source"]
-            }
-    return {
-        "text": "General market observations apply; brand-specific data is limited.",
-        "source": "General market commentary"
-    }
+def select_sources(brand, topics):
+    """
+    Selects relevant market source snippets by brand and topic.
+    """
+    brand_l = brand.lower()
+    selected = []
 
+    for row in MARKET_SOURCES:
+        if row["topic"].lower() in topics:
+            brands = [b.lower() for b in row["brands"]]
+            if "all" in brands or brand_l in brands:
+                selected.append(row)
 
-def tool_reliability(brand, model):
-    return lookup_source("Reliability", brand)
-
-
-def tool_maintenance(brand, model):
-    return lookup_source("Maintenance", brand)
-
-
-def tool_resale(brand, model):
-    return lookup_source("Resale Value", brand)
-
-
-def tool_depreciation(brand, model):
-    return lookup_source("Depreciation", brand)
-
+    return selected
 
 # =====================================================
 # LOAD MODEL ARTIFACTS
@@ -155,31 +77,32 @@ def load_artifacts():
     lookup = pd.read_csv("models/brand_model_lookup_50.csv")
     return pipe, bm, b, lookup
 
-
 pipe, bm, b, brand_model_lookup = load_artifacts()
 
 # =====================================================
 # PRICE LOOKUP
 # =====================================================
 def lookup_new_price(brand, model):
-    brand_n = normalize_text(brand)
-    model_n = normalize_text(model)
+    bn = normalize_text(brand)
+    mn = normalize_text(model)
 
     bm["Brand_n"] = bm["Brand"].apply(normalize_text)
     bm["Model_n"] = bm["Model"].apply(normalize_text)
     b["Brand_n"] = b["Brand"].apply(normalize_text)
 
-    m = bm[(bm["Brand_n"] == brand_n) & (bm["Model_n"].str.contains(model_n))]
-    if not m.empty:
-        return float(m["New_Price_bm"].iloc[0])
+    row = bm[(bm["Brand_n"] == bn) & (bm["Model_n"].str.contains(mn))]
+    if not row.empty:
+        return float(row["New_Price_bm"].iloc[0])
 
-    m = b[b["Brand_n"] == brand_n]
-    if not m.empty:
-        return float(m["New_Price_b"].iloc[0])
+    row = b[b["Brand_n"] == bn]
+    if not row.empty:
+        return float(row["New_Price_b"].iloc[0])
 
     return np.nan
 
-
+# =====================================================
+# FEATURE BUILDER
+# =====================================================
 def make_features(brand, model, age, km):
     return pd.DataFrame([{
         "Age": age,
@@ -197,58 +120,31 @@ def make_features(brand, model, age, km):
         "FuelType": "Gasoline",
     }])
 
-
 # =====================================================
 # SESSION STATE
 # =====================================================
-st.session_state.setdefault("vehicle_data", {})
+if "vehicle" not in st.session_state:
+    st.session_state.vehicle = {}
 
 # =====================================================
 # UI
 # =====================================================
-tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 Deal Advisor"])
+st.title("🚗 Preowned Car Deal Advisor")
+
+user_text = st.chat_input(
+    "Paste listing (e.g. 'Honda CR-V 2020, 60,000 km, $35,000')"
+)
 
 # =====================================================
-# TAB 1
+# STEP 1: EXTRACT VEHICLE DATA
 # =====================================================
-with tab1:
-    st.header("Price Estimator")
+if user_text:
+    extract_prompt = f"""
+Extract vehicle details from the text below.
+Return STRICT JSON only.
 
-    brand = st.selectbox("Brand", sorted(brand_model_lookup["Brand"].unique()))
-    model = st.selectbox(
-        "Model",
-        sorted(brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"].unique())
-    )
-
-    year = st.number_input("Year", 2000, datetime.now().year, 2020)
-    km = st.number_input("Kilometres", 0, 300000, 60000)
-
-    if st.button("Estimate Price"):
-        age = datetime.now().year - int(year)
-        new_price = lookup_new_price(brand, model)
-
-        if np.isnan(new_price):
-            st.error("No market data available.")
-        else:
-            X = make_features(brand, model, age, km)
-            retention = float(np.exp(pipe.predict(X)[0]))
-            price = retention * new_price
-            st.success(f"Estimated Price: AU ${price:,.0f}")
-
-
-# =====================================================
-# TAB 2 — DEAL ADVISOR
-# =====================================================
-with tab2:
-    st.header("Deal Advisor")
-
-    user_input = st.chat_input(
-        "Paste listing details (Brand, Model, Year, Kilometres, Listed price in AUD)"
-    )
-
-    if user_input:
-        extract_prompt = f"""
-Extract vehicle details and return STRICT JSON only.
+Text:
+{user_text}
 
 {{
   "Brand": "",
@@ -257,87 +153,125 @@ Extract vehicle details and return STRICT JSON only.
   "Kilometres": "",
   "ListedPrice": ""
 }}
-
-Message:
-{user_input}
-"""
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": extract_prompt}],
-            temperature=0
-        )
-
-        st.session_state.vehicle_data = safe_json_parse(
-            resp.choices[0].message.content
-        )
-
-    d = st.session_state.vehicle_data
-    if not d:
-        st.stop()
-
-    brand = d["Brand"]
-    model = d["Model"]
-    year = int(parse_numeric(d["Year"]))
-    km = int(parse_numeric(d["Kilometres"]))
-    listed_price = int(parse_numeric(d["ListedPrice"]))
-
-    age = datetime.now().year - year
-    new_price = lookup_new_price(brand, model)
-
-    X = make_features(brand, model, age, km)
-    retention = float(np.exp(pipe.predict(X)[0]))
-    predicted = retention * new_price
-    gap_pct = round((listed_price - predicted) / predicted * 100, 1)
-
-    reliability = tool_reliability(brand, model)
-    maintenance = tool_maintenance(brand, model)
-    resale = tool_resale(brand, model)
-    depreciation = tool_depreciation(brand, model)
-
-    explanation_prompt = f"""
-Return STRICT JSON only.
-
-{{
-  "verdict": "",
-  "price_rationale": ["", ""],
-  "gap_analysis": ["", ""],
-  "next_steps": ["", ""],
-  "citations": {{
-    "reliability": "",
-    "maintenance": "",
-    "resale": "",
-    "depreciation": ""
-  }}
-}}
-
-ReliabilityText: {reliability["text"]}
-ReliabilitySource: {reliability["source"]}
-
-MaintenanceText: {maintenance["text"]}
-MaintenanceSource: {maintenance["source"]}
-
-ResaleText: {resale["text"]}
-ResaleSource: {resale["source"]}
-
-DepreciationText: {depreciation["text"]}
-DepreciationSource: {depreciation["source"]}
 """
 
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": explanation_prompt}],
-        temperature=0.3
+        messages=[{"role": "user", "content": extract_prompt}],
+        temperature=0
     )
 
-    expl = safe_json_parse(resp.choices[0].message.content)
+    st.session_state.vehicle = json.loads(resp.choices[0].message.content)
 
-    st.markdown("### 🧠 Market Explanation")
-    st.markdown(f"**Verdict:** {expl['verdict']}")
+# =====================================================
+# STEP 2: VALIDATE
+# =====================================================
+v = st.session_state.vehicle
 
-    for k in ["price_rationale", "gap_analysis", "next_steps"]:
-        for b in expl[k]:
-            st.markdown(f"- {b}")
+brand = v.get("Brand")
+model = v.get("Model")
+year = parse_numeric(v.get("Year"))
+kms = parse_numeric(v.get("Kilometres"))
+listed_price = parse_numeric(v.get("ListedPrice"))
 
-    st.markdown("### 📌 Sources")
-    for k, v in expl["citations"].items():
-        st.markdown(f"- **{k.title()}**: {v}")
+missing = []
+if not brand: missing.append("Brand")
+if not model: missing.append("Model")
+if year is None: missing.append("Year")
+if kms is None: missing.append("Kilometres")
+if listed_price is None: missing.append("Listed Price")
+
+if missing:
+    st.info(f"Please include: {', '.join(missing)}")
+    st.stop()
+
+# =====================================================
+# STEP 3: PRICE PREDICTION
+# =====================================================
+age = datetime.now().year - int(year)
+new_price = lookup_new_price(brand, model)
+
+if np.isnan(new_price):
+    st.error("Insufficient pricing data for this Brand / Model.")
+    st.stop()
+
+X = make_features(brand, model, age, kms)
+retention = float(np.exp(pipe.predict(X)[0]))
+pred_price = float(retention * new_price)
+gap_pct = round((listed_price - pred_price) / pred_price * 100, 1)
+
+st.success(
+    f"Predicted value: AU ${pred_price:,.0f} "
+    f"(Listed: AU ${int(listed_price):,}, Gap: {gap_pct}%)"
+)
+
+# =====================================================
+# STEP 4: SELECT SOURCES
+# =====================================================
+sources = select_sources(
+    brand,
+    topics=["reliability", "maintenance", "resale", "depreciation"]
+)
+
+sources_text = "\n\n".join(
+    f"- {s['topic']} ({s['source']}): {s['text']}"
+    for s in sources
+)
+
+# =====================================================
+# STEP 5: LLM EXPLANATION (JSON OUTPUT)
+# =====================================================
+explain_prompt = f"""
+You are an automotive market advisor.
+
+Use ONLY the information provided.
+Cite sources in parentheses.
+
+Vehicle:
+{brand} {model}, {age} years, {kms} km
+
+Pricing:
+Predicted Price: AU ${int(pred_price)}
+Retention: {round(retention*100,1)}%
+Listed Price: AU ${int(listed_price)}
+Gap: {gap_pct}%
+
+Market sources:
+{sources_text}
+
+Return STRICT JSON:
+
+{{
+  "verdict": "",
+  "why_price": ["", ""],
+  "gap_reason": ["", ""],
+  "next_steps": ["", ""]
+}}
+"""
+
+resp = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": explain_prompt}],
+    temperature=0.4
+)
+
+explanation = json.loads(resp.choices[0].message.content)
+
+# =====================================================
+# STEP 6: RENDER
+# =====================================================
+st.markdown("## 🧠 Market Explanation")
+
+st.markdown(f"**Verdict:** {explanation['verdict']}")
+
+st.markdown("**Why this price makes sense (or does not)**")
+for b in explanation["why_price"]:
+    st.markdown(f"- {b}")
+
+st.markdown("**How the listed price compares**")
+for b in explanation["gap_reason"]:
+    st.markdown(f"- {b}")
+
+st.markdown("**What you should do next**")
+for b in explanation["next_steps"]:
+    st.markdown(f"- {b}")
