@@ -421,6 +421,16 @@ OUTPUT RULES:
 - Each section MUST have exactly 2 bullet points
 - Each bullet point MUST be one sentence only
 
+FORMAT RULES (STRICT):
+
+- Use full sentences.
+- Do NOT split numbers across lines.
+- Use standard currency formatting (e.g. AU $25,125).
+- Use clear section headings.
+- Do NOT insert extra line breaks inside numbers.
+- Do NOT use excessive markdown.
+
+
 FORMAT (mandatory):
 
 #### 🧾 Verdict on the deal
@@ -458,4 +468,4 @@ When explaining prices, always anchor statements to:
     st.markdown("### 🧠 Market Explanation")
 
     cleaned = clean_llm_markdown(expl.choices[0].message.content)
-    st.markdown(cleaned)
+    st.markdown(cleaned,unsafe_allow_html=False)
