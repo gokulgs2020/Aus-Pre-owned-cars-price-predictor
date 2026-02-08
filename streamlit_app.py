@@ -190,9 +190,9 @@ with tab1:
             retention = np.exp(log_ret)
             pred_price = retention * new_price
 
-            st.success(f"Estimated Price: A$ {pred_price:,.0f}")
+            st.success(f"Estimated Price: AU $ {pred_price:,.0f}")
             st.caption(
-                f"Retention: {retention:.3f} | New Price Proxy: A$ {new_price:,.0f}"
+                f"Retention %: {retention:.2d} | Typical Price of a new car: AU $ {new_price:,.0f}"
             )
 
 # =====================================================
@@ -206,7 +206,7 @@ with tab2:
         st.session_state.vehicle_data = {}
         st.rerun()
 
-    user_input = st.chat_input("Paste listing text or answer questions…")
+    user_input = st.chat_input("Paste the details of your the car listing you are interested in, kindly include Brand, Model, Kms driven and listed price")
 
     if user_input:
         st.session_state.chat_history.append(
@@ -223,7 +223,7 @@ Message:
 {user_input}
 
 Required:
-Brand, Model, Year, Kilometres
+Brand, Model, Year, Kilometres, Listed Price
 
 Return JSON only:
 {{"extracted_data": {{}}}}
@@ -243,7 +243,7 @@ Return JSON only:
         except:
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": "I couldn’t parse that. Could you rephrase?"
+                "content": "I couldn’t understand that. Could you rephrase please?"
             })
 
     for msg in st.session_state.chat_history:
@@ -280,7 +280,7 @@ Return JSON only:
 
     if invalid_fields:
         st.chat_message("assistant").write(
-            f"I just need the following to continue: {', '.join(invalid_fields)}"
+            f"Please include the following to continue: {', '.join(invalid_fields)}"
         )
     else:
         brand = parsed["Brand"]
@@ -301,12 +301,28 @@ Return JSON only:
             retention = np.exp(log_ret)
             pred_price = retention * new_price
 
+            # -------------------------------------------------
+        # LISTED PRICE — MUST BE EXPLICIT
+        # -------------------------------------------------
+        extracted_lp = parse_numeric(st.session_state.vehicle_data.get("Listed Price"))
+
+        if extracted_lp is not None:
+            st.info(f"Listed price detected from listing: AU $ {int(extracted_lp):,}")
+            listed_price = float(extracted_lp)
+            manual_override = False
+        else:
+            st.warning("⚠️ Listed price not found in the message.")
             listed_price = st.number_input(
-                "Listed Price (optional)",
+                "Please enter the seller's listed price",
                 min_value=0,
-                value=int(pred_price),
                 step=500
             )
+            manual_override = True
+
+        # Stop execution until user provides it
+        if not listed_price or listed_price <= 0:
+            st.stop()
+
 
             gap_pct = round(
                 (listed_price - pred_price) / pred_price * 100, 1
@@ -340,8 +356,9 @@ RESALE
 DEPRECIATION
 {tool_depreciation(brand, model)}
 
-Explain price, classify deal (Bargain/Fair/Overpriced),
-explain gap, and advise next steps.
+Explain in not more than 2-3 lines each, use bullet points as needed.
+Price, classify deal (Great Bargain/Good offer/On Par with evaluation/Slightly Overpriced/Very expensive) based on the gap,
+explain the gap, and advise next steps 
 """
 
             with st.spinner("Generating explanation…"):
