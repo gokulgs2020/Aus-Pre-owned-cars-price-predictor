@@ -369,7 +369,7 @@ Return JSON only:
             =====================================
             TASKS
 
-            1️⃣ Deal Classification  
+            1️⃣ Verdict on the listed price  
             Classify the deal into ONE of the following:
             - Great Bargain
             - Good Offer
@@ -382,7 +382,7 @@ Return JSON only:
             2️⃣ Price Explanation  
             In 2–3 bullet points, explain:
             - Why the predicted price is at this level (new price × retention)
-            - How reliability, maintenance, resale perception, and depreciation influence this valuation
+            - How reliability, maintenance, resale perception, and depreciation influence this valuation for this particular {brand}
 
             3️⃣ Gap Interpretation  
             In 2–3 bullet points, explain:
@@ -391,16 +391,16 @@ Return JSON only:
 
             4️⃣ Recommended Next Steps  
             In 2–3 bullet points:
-            - If the deal is a bargain → advise proceeding but recommend standard checks (service history, accident damage, inspection)
+            - If the deal is a bargain → advise proceeding but recommend standard checks (service history, accident damage, inspection to probe why there is a bargain)
             - If the deal is fair → advise negotiation using model price as anchor
-            - If the deal is overpriced → advise negotiation strategy using depreciation and resale arguments
+            - If the deal is overpriced → advise negotiation strategy using depreciation and resale arguments and suggest waiting or evaluating other options
 
             =====================================
             OUTPUT FORMAT
 
             Use the following format exactly:
 
-            **Deal Classification:** <one label>
+            **What do we think about this listed price:** <one label>
 
             **Why this price makes sense**
             - ...
@@ -419,10 +419,17 @@ Return JSON only:
                 expl = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": explanation_prompt}],
-                    temperature=0.3
+                    temperature=0.5
                 )
 
             st.divider()
             st.markdown("### 🧠 Market Explanation")
-            st.markdown(expl.choices[0].message.content)
+
+            def clean_llm_text(text: str) -> str:
+                return " ".join(text.split())
+        
+            cleaned = clean_llm_text(expl.choices[0].message.content)
+            st.markdown(cleaned)
+
+
 
