@@ -192,7 +192,7 @@ with tab1:
 
             st.success(f"Estimated Price: AU $ {pred_price:,.0f}")
             st.caption(
-                f"Retention %: {retention:.2f} | Typical Price of a new car: AU $ {new_price:,.0f}"
+                f"Retention %: {retention*100:.1}% | Typical Price of a new car: AU $ {new_price:,.0f}"
             )
 
 # =====================================================
@@ -254,7 +254,7 @@ Return JSON only:
     # VALIDATION & GATING
     # -------------------------------------------------
     parsed = {}
-    invalid_fields = []
+    missing_fields = []
 
     # Brand & Model
     for field in ["Brand", "Model"]:
@@ -262,31 +262,47 @@ Return JSON only:
         if isinstance(v, str) and v.strip():
             parsed[field] = v.strip()
         else:
-            invalid_fields.append(field)
+            missing_fields.append(field)
 
     # Year & Kilometres
     year = parse_numeric(st.session_state.vehicle_data.get("Year"))
     kms = parse_numeric(st.session_state.vehicle_data.get("Kilometres"))
 
     if year is None:
-        invalid_fields.append("Year")
+        missing_fields.append("Year")
     else:
         parsed["Year"] = int(year)
 
     if kms is None:
-        invalid_fields.append("Kilometres")
+        missing_fields.append("Kilometres")
     else:
         parsed["Kilometres"] = int(kms)
 
-    if invalid_fields:
+    # 🚨 LISTED PRICE REQUIRED FROM CHAT
+    listed_price = parse_numeric(st.session_state.vehicle_data.get("Listed Price"))
+    if listed_price is None:
+        missing_fields.append("Listed Price")
+    else:
+        parsed["Listed Price"] = int(listed_price)
+
+
+    # -------------------------------------------------
+    # ASK USER IF DATA MISSING
+    # -------------------------------------------------
+    if missing_fields:
         st.chat_message("assistant").write(
-            f"Please include the following to continue: {', '.join(invalid_fields)}"
+            f"I still need the following: {', '.join(missing_fields)}."
         )
+
+    # -------------------------------------------------
+    # RUN VALUATION
+    # -------------------------------------------------
     else:
         brand = parsed["Brand"]
         model = parsed["Model"]
         year = parsed["Year"]
         kms = parsed["Kilometres"]
+        listed_price = parsed["Listed Price"]
 
         age = datetime.now().year - year
         new_price = lookup_new_price(brand, model)
@@ -296,70 +312,53 @@ Return JSON only:
                 "I don’t have sufficient market data for this Brand / Model."
             )
         else:
+            # quick acknowledgement → feels premium
+            st.chat_message("assistant").write(
+                f"Got it 👍 {brand} {model}, {kms:,} km, listed at AU $ {listed_price:,}. Let me evaluate the deal."
+            )
+
             X = make_features(brand, model, age, kms)
             log_ret = float(pipe.predict(X)[0])
             retention = np.exp(log_ret)
             pred_price = retention * new_price
-
-            # -------------------------------------------------
-        # LISTED PRICE — MUST BE EXPLICIT
-        # -------------------------------------------------
-        extracted_lp = parse_numeric(st.session_state.vehicle_data.get("Listed Price"))
-
-        if extracted_lp is not None:
-            st.info(f"Listed price detected from listing: AU $ {int(extracted_lp):,}")
-            listed_price = float(extracted_lp)
-            manual_override = False
-        else:
-            st.warning("⚠️ Listed price not found in the message.")
-            listed_price = st.number_input(
-                "Please enter the seller's listed price",
-                min_value=0,
-                step=500
-            )
-            manual_override = True
-
-        # Stop execution until user provides it
-        if not listed_price or listed_price <= 0:
-            st.stop()
-
 
             gap_pct = round(
                 (listed_price - pred_price) / pred_price * 100, 1
             )
 
             explanation_prompt = f"""
-You are an automotive market advisor.
+    You are an automotive market advisor.
 
-VEHICLE
-Brand: {brand}
-Model: {model}
-Age: {age}
-Kilometres: {kms}
+    VEHICLE
+    Brand: {brand}
+    Model: {model}
+    Age: {age}
+    Kilometres: {kms}
 
-PRICING
-New Price: {int(new_price)}
-Predicted Price: {int(pred_price)}
-Retention (%): {round(retention*100,1)}
-Listed Price: {int(listed_price)}
-Gap (%): {gap_pct}
+    PRICING
+    New Price: {int(new_price)}
+    Predicted Price: {int(pred_price)}
+    Retention (%): {round(retention*100,1)}
+    Listed Price: {int(listed_price)}
+    Gap (%): {gap_pct}
 
-RELIABILITY
-{tool_reliability(brand, model)}
+    RELIABILITY
+    {tool_reliability(brand, model)}
 
-MAINTENANCE
-{tool_maintenance(brand, model)}
+    MAINTENANCE
+    {tool_maintenance(brand, model)}
 
-RESALE
-{tool_resale(brand, model)}
+    RESALE
+    {tool_resale(brand, model)}
 
-DEPRECIATION
-{tool_depreciation(brand, model)}
+    DEPRECIATION
+    {tool_depreciation(brand, model)}
 
-Explain in not more than 2-3 lines each, use bullet points as needed.
-Price, classify deal (Great Bargain/Good offer/On Par with evaluation/Slightly Overpriced/Very expensive) based on the gap,
-explain the gap, and advise next steps 
-"""
+    Explain in short bullets:
+    - classify deal
+    - explain price gap
+    - suggest negotiation advice
+    """
 
             with st.spinner("Generating explanation…"):
                 expl = client.chat.completions.create(
@@ -371,3 +370,4 @@ explain the gap, and advise next steps
             st.divider()
             st.markdown("### 🧠 Market Explanation")
             st.markdown(expl.choices[0].message.content)
+
