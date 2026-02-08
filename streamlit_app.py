@@ -327,38 +327,93 @@ Return JSON only:
             )
 
             explanation_prompt = f"""
-    You are an automotive market advisor.
+            You are an automotive market advisor supporting a used-car buyer.
+            Your role is to explain pricing decisions clearly, cautiously, and evidence-based.
 
-    VEHICLE
-    Brand: {brand}
-    Model: {model}
-    Age: {age}
-    Kilometres: {kms}
+            You must:
+            - Use ONLY the information provided below
+            - Avoid absolute claims or guarantees
+            - Avoid adding facts not present in the inputs
+            - Keep the explanation concise and structured
 
-    PRICING
-    New Price: {int(new_price)}
-    Predicted Price: {int(pred_price)}
-    Retention (%): {round(retention*100,1)}
-    Listed Price: {int(listed_price)}
-    Gap (%): {gap_pct}
+            =====================================
+            VEHICLE DETAILS
+            Brand: {brand}
+            Model: {model}
+            Vehicle Age (years): {age}
+            Kilometres Driven: {kms}
 
-    RELIABILITY
-    {tool_reliability(brand, model)}
+            =====================================
+            PRICING CONTEXT
+            Typical New Price: AU ${int(new_price)}
+            Model-Predicted Price: AU ${int(pred_price)}
+            Implied Retention: {round(retention*100,1)}%
+            Seller Listed Price: AU ${int(listed_price)}
+            Price Gap vs Prediction: {gap_pct}%
 
-    MAINTENANCE
-    {tool_maintenance(brand, model)}
+            =====================================
+            MARKET CONTEXT (REFERENCE INFORMATION)
 
-    RESALE
-    {tool_resale(brand, model)}
+            Reliability:
+            {tool_reliability(brand, model)}
 
-    DEPRECIATION
-    {tool_depreciation(brand, model)}
+            Maintenance & After-Sales:
+            {tool_maintenance(brand, model)}
 
-    Explain in short bullets:
-    - classify deal
-    - explain price gap using reasons based on RELIABILITY, MAINTENANCE, RESALE and DEPRECIATION
-    - suggest negotiation advice, if bargain advice to proceed with caution if there are other flaws in physical veihcle, damages or accidents, if overpriced, use predicted price data and inputs on RELIABILITY, MAINTENANCE, RESALE and DEPRECIATION to negotiate  
-    """
+            Resale Perception:
+            {tool_resale(brand, model)}
+
+            Depreciation Pattern:
+            {tool_depreciation(brand, model)}
+
+            =====================================
+            TASKS
+
+            1️⃣ Deal Classification  
+            Classify the deal into ONE of the following:
+            - Great Bargain
+            - Good Offer
+            - Fair / On Par with Market
+            - Slightly Overpriced
+            - Significantly Overpriced
+
+            Base this primarily on the price gap, adjusted for market context.
+
+            2️⃣ Price Explanation  
+            In 2–3 bullet points, explain:
+            - Why the predicted price is at this level (new price × retention)
+            - How reliability, maintenance, resale perception, and depreciation influence this valuation
+
+            3️⃣ Gap Interpretation  
+            In 2–3 bullet points, explain:
+            - Why the listed price is above or below the model prediction
+            - Whether the gap appears justified given market context
+
+            4️⃣ Recommended Next Steps  
+            In 2–3 bullet points:
+            - If the deal is a bargain → advise proceeding but recommend standard checks (service history, accident damage, inspection)
+            - If the deal is fair → advise negotiation using model price as anchor
+            - If the deal is overpriced → advise negotiation strategy using depreciation and resale arguments
+
+            =====================================
+            OUTPUT FORMAT
+
+            Use the following format exactly:
+
+            **Deal Classification:** <one label>
+
+            **Why this price makes sense**
+            - ...
+            - ...
+
+            **How the listed price compares**
+            - ...
+            - ...
+
+            **What you should do next**
+            - ...
+            - ...
+            """
 
             with st.spinner("Generating explanation…"):
                 expl = client.chat.completions.create(
