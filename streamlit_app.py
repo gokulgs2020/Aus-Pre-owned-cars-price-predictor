@@ -136,18 +136,33 @@ pipe, bm, b, brand_model_lookup = load_artifacts()
 # PRICE LOOKUP
 # =====================================================
 def lookup_new_price(brand, model):
-    brand = str(brand).strip()
-    model = str(model).strip()
+    brand_n = normalize_text(brand)
+    model_n = normalize_text(model)
 
-    row_bm = bm[(bm["Brand"] == brand) & (bm["Model"] == model)]
-    if len(row_bm):
-        return float(row_bm["New_Price_bm"].iloc[0])
+    bm_copy = bm.copy()
+    b_copy = b.copy()
 
-    row_b = b[b["Brand"] == brand]
-    if len(row_b):
-        return float(row_b["New_Price_b"].iloc[0])
+    bm_copy["Brand_n"] = bm_copy["Brand"].apply(normalize_text)
+    bm_copy["Model_n"] = bm_copy["Model"].apply(normalize_text)
+    b_copy["Brand_n"] = b_copy["Brand"].apply(normalize_text)
+
+    # 1️⃣ Model-level match (contains handles trims)
+    model_match = bm_copy[
+        (bm_copy["Brand_n"] == brand_n) &
+        (bm_copy["Model_n"].str.contains(model_n))
+    ]
+
+    if not model_match.empty:
+        return float(model_match["New_Price_bm"].iloc[0])
+
+    # 2️⃣ Brand-level fallback
+    brand_match = b_copy[b_copy["Brand_n"] == brand_n]
+
+    if not brand_match.empty:
+        return float(brand_match["New_Price_b"].iloc[0])
 
     return float("nan")
+
 
 
 # =====================================================
@@ -335,6 +350,19 @@ Do not include markdown code fences.
 
     age = datetime.now().year - int(year)
     new_price = lookup_new_price(brand, model)
+
+    def normalize_text(x):
+        if not x:
+            return ""
+        return (
+            str(x)
+            .lower()
+            .strip()
+            .replace("-", "")
+            .replace(" ", "")
+            .replace("_", "")
+        )
+
 
     if np.isnan(new_price):
         st.chat_message("assistant").write(
