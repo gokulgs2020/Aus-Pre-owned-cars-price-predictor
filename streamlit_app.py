@@ -44,12 +44,21 @@ def parse_numeric(value):
     return None
 
 
-def clean_llm_markdown(text: str) -> str:
+def safe_json_parse(text: str):
     if not text:
-        return ""
-    text = text.replace("\u200b", "").replace("\u00a0", " ")
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return "\n\n".join(lines)
+        raise ValueError("Empty LLM response")
+
+    t = text.strip()
+
+    # remove ```json fences if present
+    if t.startswith("```"):
+        parts = t.split("```")
+        t = parts[1] if len(parts) > 1 else parts[0]
+        t = t.strip()
+        if t.lower().startswith("json"):
+            t = t[4:].strip()
+
+    return json.loads(t)
 
 
 # =====================================================
@@ -57,24 +66,24 @@ def clean_llm_markdown(text: str) -> str:
 # =====================================================
 def tool_reliability(brand, model):
     if brand.lower() == "toyota":
-        return "Toyota vehicles are widely regarded for long-term mechanical reliability."
-    return "No abnormal reliability risks compared with segment peers."
+        return "Toyota vehicles are widely regarded for strong long-term mechanical reliability."
+    return "No unusual reliability risks compared with typical vehicles in this category."
 
 
 def tool_maintenance(brand, model):
     if brand.lower() == "toyota":
-        return "Toyota benefits from a strong service network and low maintenance friction."
-    return "Maintenance costs align with typical segment expectations."
+        return "Toyota vehicles benefit from widespread service availability and relatively low maintenance friction."
+    return "Maintenance requirements are broadly in line with segment expectations."
 
 
 def tool_resale(brand, model):
     if brand.lower() == "toyota":
-        return "Toyota models typically retain value better than average."
-    return "Resale value reflects overall market demand for the segment."
+        return "Toyota models typically command stronger used-market demand, supporting resale value."
+    return "Resale value reflects general market demand rather than strong brand premiums."
 
 
 def tool_depreciation(brand, model):
-    return "Most depreciation occurs in early years, with gradual value stabilisation later."
+    return "Vehicles typically experience higher depreciation in early years followed by gradual stabilisation."
 
 
 # =====================================================
@@ -90,6 +99,7 @@ def load_artifacts():
 
 
 pipe, bm, b, brand_model_lookup = load_artifacts()
+
 
 def normalize_text(x):
     return str(x).lower().replace(" ", "").replace("-", "").replace("_", "")
@@ -135,16 +145,15 @@ def make_features(brand, model, age, km):
 # =====================================================
 # SESSION STATE
 # =====================================================
-st.session_state.setdefault("chat_history", [])
 st.session_state.setdefault("vehicle_data", {})
 
 # =====================================================
-# UI TABS
+# UI
 # =====================================================
 tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 Deal Advisor"])
 
 # =====================================================
-# TAB 1 — ESTIMATOR
+# TAB 1 — PRICE ESTIMATOR
 # =====================================================
 with tab1:
     st.header("Price Estimator")
@@ -163,10 +172,10 @@ with tab1:
         new_price = lookup_new_price(brand, model)
 
         if np.isnan(new_price):
-            st.error("No market data for this Brand / Model")
+            st.error("No market data available for this Brand / Model.")
         else:
             X = make_features(brand, model, age, km)
-            retention = np.exp(pipe.predict(X)[0])
+            retention = float(np.exp(pipe.predict(X)[0]))
             price = retention * new_price
 
             st.success(f"Estimated Price: AU ${price:,.0f}")
@@ -174,13 +183,12 @@ with tab1:
 
 
 # =====================================================
-# TAB 2 — DEAL ADVISOR (SINGLE, FIXED)
+# TAB 2 — DEAL ADVISOR
 # =====================================================
 with tab2:
     st.header("Deal Advisor")
 
     if st.button("🔄 Restart Conversation", key="restart_chat"):
-        st.session_state.chat_history = []
         st.session_state.vehicle_data = {}
         st.rerun()
 
@@ -188,6 +196,9 @@ with tab2:
         "Paste listing details (Brand, Model, Year, Kilometres, Listed price in AUD)"
     )
 
+    # -----------------------------
+    # 1. Extract listing details
+    # -----------------------------
     if user_input:
         extract_prompt = f"""
 Extract vehicle details and return STRICT JSON only.
@@ -210,11 +221,12 @@ Message:
         )
 
         try:
-            st.session_state.vehicle_data = json.loads(resp.choices[0].message.content)
-        except Exception:
-            st.chat_message("assistant").write(
-                "I couldn't extract the details. Please include Brand, Model, Year, Kilometres, and Listed Price."
+            st.session_state.vehicle_data = safe_json_parse(
+                resp.choices[0].message.content
             )
+        except Exception:
+            st.error("Could not extract listing details.")
+            st.code(resp.choices[0].message.content)
             st.stop()
 
     data = st.session_state.vehicle_data
@@ -223,39 +235,45 @@ Message:
     model = data.get("Model")
     year = parse_numeric(data.get("Year"))
     km = parse_numeric(data.get("Kilometres"))
-    listed = parse_numeric(data.get("ListedPrice"))
+    listed_price = parse_numeric(data.get("ListedPrice"))
 
-    missing = [k for k, v in {
-        "Brand": brand,
-        "Model": model,
-        "Year": year,
-        "Kilometres": km,
-        "Listed Price": listed
-    }.items() if v is None or v == ""]
+    missing = []
+    if not brand: missing.append("Brand")
+    if not model: missing.append("Model")
+    if year is None: missing.append("Year")
+    if km is None: missing.append("Kilometres")
+    if listed_price is None: missing.append("Listed Price")
 
     if missing:
         st.chat_message("assistant").write(f"I still need: {', '.join(missing)}.")
         st.stop()
 
+    # -----------------------------
+    # 2. Run valuation
+    # -----------------------------
     age = datetime.now().year - int(year)
     new_price = lookup_new_price(brand, model)
 
     if np.isnan(new_price):
-        st.chat_message("assistant").write("Insufficient market data for this vehicle.")
+        st.chat_message("assistant").write(
+            "I don’t have sufficient market data for this vehicle."
+        )
         st.stop()
 
     X = make_features(brand, model, age, km)
-    retention = np.exp(pipe.predict(X)[0])
-    predicted = retention * new_price
-    gap_pct = round((listed - predicted) / predicted * 100, 1)
+    retention = float(np.exp(pipe.predict(X)[0]))
+    predicted_price = retention * new_price
+    gap_pct = round((listed_price - predicted_price) / predicted_price * 100, 1)
 
     st.chat_message("assistant").write(
-        f"Got it 👍 {brand} {model}, {km:,} km, listed at AU ${int(listed):,}. Evaluating…"
+        f"Got it 👍 {brand} {model}, {km:,} km, listed at AU ${int(listed_price):,}. Evaluating…"
     )
 
+    # -----------------------------
+    # 3. Ask LLM for structured explanation
+    # -----------------------------
     explanation_prompt = f"""
-You are an automotive market advisor.
-Use ONLY the info below and return STRICT JSON.
+Return STRICT JSON only. No markdown, no prose.
 
 {{
   "verdict": "",
@@ -268,9 +286,9 @@ Brand: {brand}
 Model: {model}
 Age: {age}
 Kilometres: {km}
-PredictedPrice: {int(predicted)}
-Retention: {round(retention*100,1)}
-ListedPrice: {int(listed)}
+PredictedPrice: {int(predicted_price)}
+RetentionPercent: {round(retention*100,1)}
+ListedPrice: {int(listed_price)}
 GapPercent: {gap_pct}
 
 Reliability: {tool_reliability(brand, model)}
@@ -286,16 +304,29 @@ Depreciation: {tool_depreciation(brand, model)}
             temperature=0.4
         )
 
-    expl = json.loads(resp.choices[0].message.content)
+    try:
+        expl = safe_json_parse(resp.choices[0].message.content)
+    except Exception:
+        st.error("Model returned invalid JSON.")
+        st.code(resp.choices[0].message.content)
+        st.stop()
 
+    # -----------------------------
+    # 4. Render UI
+    # -----------------------------
     st.divider()
     st.markdown("### 🧠 Market Explanation")
+
     st.markdown(f"**Verdict:** {expl['verdict']}")
-    for sec, title in [
-        ("price_rationale", "Why this price makes sense"),
-        ("gap_analysis", "How the listed price compares"),
-        ("next_steps", "What you should do next")
-    ]:
-        st.markdown(f"**{title}**")
-        for b in expl[sec]:
-            st.markdown(f"- {b}")
+
+    st.markdown("**Why this price makes sense (or does not)**")
+    for b in expl["price_rationale"]:
+        st.markdown(f"- {b}")
+
+    st.markdown("**How the listed price compares**")
+    for b in expl["gap_analysis"]:
+        st.markdown(f"- {b}")
+
+    st.markdown("**What you should do next**")
+    for b in expl["next_steps"]:
+        st.markdown(f"- {b}")
