@@ -491,3 +491,178 @@ When explaining prices, always anchor statements to:
 
     cleaned = clean_llm_markdown(expl.choices[0].message.content)
     st.markdown(cleaned,unsafe_allow_html=False)
+# =====================================================
+# TAB 2 — DEAL ADVISOR (CLEAN & ROBUST)
+# =====================================================
+with tab2:
+    st.header("Deal Advisor")
+
+    if st.button("🔄 Restart Conversation"):
+        st.session_state.chat_history = []
+        st.session_state.vehicle_data = {}
+        st.rerun()
+
+    user_input = st.chat_input(
+        "Paste listing details (Brand, Model, Year, Kilometres, Listed price in AUD)"
+    )
+
+    # -----------------------------
+    # 1. Extract listing details
+    # -----------------------------
+    if user_input:
+        extract_prompt = f"""
+Extract vehicle details from the message.
+
+Message:
+{user_input}
+
+Return STRICT JSON only (no markdown):
+
+{{
+  "Brand": "",
+  "Model": "",
+  "Year": "",
+  "Kilometres": "",
+  "ListedPrice": ""
+}}
+"""
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": extract_prompt}],
+            temperature=0
+        )
+
+        try:
+            st.session_state.vehicle_data = json.loads(
+                resp.choices[0].message.content
+            )
+        except Exception:
+            st.chat_message("assistant").write(
+                "I couldn't extract the details. Please include Brand, Model, Year, Kilometres, and Listed Price."
+            )
+            st.stop()
+
+    # -----------------------------
+    # 2. Validate extracted fields
+    # -----------------------------
+    data = st.session_state.vehicle_data
+
+    brand = data.get("Brand")
+    model = data.get("Model")
+    year = parse_numeric(data.get("Year"))
+    kms = parse_numeric(data.get("Kilometres"))
+    listed_price = parse_numeric(data.get("ListedPrice"))
+
+    missing = []
+    if not brand: missing.append("Brand")
+    if not model: missing.append("Model")
+    if year is None: missing.append("Year")
+    if kms is None: missing.append("Kilometres")
+    if listed_price is None: missing.append("Listed Price")
+
+    if missing:
+        st.chat_message("assistant").write(
+            f"I still need: {', '.join(missing)}."
+        )
+        st.stop()
+
+    # -----------------------------
+    # 3. Price prediction
+    # -----------------------------
+    age = datetime.now().year - int(year)
+    new_price = lookup_new_price(brand, model)
+
+    if np.isnan(new_price):
+        st.chat_message("assistant").write(
+            "I don’t have sufficient market data for this Brand / Model."
+        )
+        st.stop()
+
+    X = make_features(brand, model, age, kms)
+    log_ret = float(pipe.predict(X)[0])
+    retention = float(np.exp(log_ret))
+    predicted_price = float(retention * new_price)
+    gap_pct = round(((listed_price - predicted_price) / predicted_price) * 100, 1)
+
+    st.chat_message("assistant").write(
+        f"Got it 👍 {brand} {model}, {kms:,} km, listed at AU ${int(listed_price):,}. Here’s my assessment."
+    )
+
+    # -----------------------------
+    # 4. Ask LLM for STRUCTURED explanation
+    # -----------------------------
+    explanation_prompt = f"""
+You are an automotive market advisor.
+
+Use ONLY the information below.
+Return STRICT JSON only.
+
+INPUTS
+Brand: {brand}
+Model: {model}
+Age: {age}
+Kilometres: {kms}
+PredictedPrice: {int(predicted_price)}
+RetentionPercent: {round(retention*100,1)}
+ListedPrice: {int(listed_price)}
+GapPercent: {gap_pct}
+
+Reliability:
+{tool_reliability(brand, model)}
+
+Maintenance:
+{tool_maintenance(brand, model)}
+
+Resale:
+{tool_resale(brand, model)}
+
+Depreciation:
+{tool_depreciation(brand, model)}
+
+OUTPUT JSON FORMAT:
+
+{{
+  "verdict": "Great Bargain | Good Offer | Fair | Slightly Overpriced | Significantly Overpriced",
+  "price_rationale": [
+    "bullet 1",
+    "bullet 2"
+  ],
+  "gap_analysis": [
+    "bullet 1",
+    "bullet 2"
+  ],
+  "next_steps": [
+    "bullet 1",
+    "bullet 2"
+  ]
+}}
+"""
+
+    with st.spinner("Analysing the deal…"):
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": explanation_prompt}],
+            temperature=0.4
+        )
+
+    explanation = json.loads(resp.choices[0].message.content)
+
+    # -----------------------------
+    # 5. Render clean UI
+    # -----------------------------
+    st.divider()
+    st.markdown("### 🧠 Market Explanation")
+
+    st.markdown(f"**Verdict:** {explanation['verdict']}")
+
+    st.markdown("**Why this price makes sense (or does not)**")
+    for b in explanation["price_rationale"]:
+        st.markdown(f"- {b}")
+
+    st.markdown("**How the listed price compares**")
+    for b in explanation["gap_analysis"]:
+        st.markdown(f"- {b}")
+
+    st.markdown("**What you should do next**")
+    for b in explanation["next_steps"]:
+        st.markdown(f"- {b}")
