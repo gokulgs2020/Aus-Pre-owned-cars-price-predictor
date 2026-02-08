@@ -192,7 +192,7 @@ with tab1:
 
             st.success(f"Estimated Price: AU $ {pred_price:,.0f}")
             st.caption(
-                f"Retention %: {retention:.2d} | Typical Price of a new car: AU $ {new_price:,.0f}"
+                f"Retention %: {retention:.2f} | Typical Price of a new car: AU $ {new_price:,.0f}"
             )
 
 # =====================================================
