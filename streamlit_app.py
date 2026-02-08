@@ -23,10 +23,19 @@ client = OpenAI(api_key=api_key)
 # =====================================================
 # LOAD MARKET SOURCES (CURATED KB)
 # =====================================================
+from pathlib import Path
+
 @st.cache_resource
 def load_market_sources():
-    with open("data/market_sources.json", "r", encoding="utf-8") as f:
+    BASE_DIR = Path(__file__).resolve().parent
+    path = BASE_DIR / "data" / "market_sources.json"
+
+    if not path.exists():
+        raise FileNotFoundError(f"Market sources file not found at: {path}")
+
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
 
 MARKET_SOURCES = load_market_sources()
 
