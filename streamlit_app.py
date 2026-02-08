@@ -48,7 +48,6 @@ def parse_numeric(value):
 
     return None
 
-
 def safe_json_parse(text: str):
     t = (text or "").strip()
     if t.startswith("```"):
@@ -57,14 +56,12 @@ def safe_json_parse(text: str):
             t = t[4:]
     return json.loads(t.strip())
 
-
 def clean_llm_markdown(text: str) -> str:
     if not text:
         return ""
     text = text.replace("\u200b", "").replace("\u00a0", " ")
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     return "\n\n".join(lines)
-
 
 def normalize_text(x):
     return (
@@ -90,7 +87,6 @@ def load_artifacts():
                 df_[c] = df_[c].astype(str).str.strip()
 
     return pipe, bm, b, lookup
-
 
 pipe, bm, b, brand_model_lookup = load_artifacts()
 
@@ -311,69 +307,36 @@ Text:
 
     market_ctx = get_market_sources_for_brand(brand)
 
-    def format_sources(topic):
-        entries = market_ctx.get(topic, [])
-        if not entries:
-            return "No specific source found."
-        return "\n".join([f"- {e}" for e in entries[:2]])
-
-
     explanation_prompt = f"""
-    You are an automotive market advisor.
+You are advising a buyer on THIS listing.
 
-    You MUST cite sources exactly as provided.
-    You are NOT allowed to add new sources.
-    If no source is available, explicitly say: "No source available."
+VEHICLE:
+{brand} {model}, {age} years, {kms} km
 
-    =====================================
-    VEHICLE
-    Brand: {brand}
-    Model: {model}
-    Age: {age} years
-    Kilometres: {kms}
+PRICES:
+Predicted: AU ${int(pred_price)}
+Listed: AU ${int(listed_price)}
+Gap: {gap_pct}%
 
-    =====================================
-    PRICING
-    Predicted Price: AU ${int(pred_price)}
-    Listed Price: AU ${int(listed_price)}
-    Price Gap: {gap_pct}%
+MARKET CONTEXT (CITE INLINE):
+Resale:
+{" ".join(market_ctx["resale"][:1])}
 
-    =====================================
-    MARKET SOURCES (USE VERBATIM)
+Reliability:
+{" ".join(market_ctx["reliability"][:1])}
 
-    RESALE SOURCES:
-    {format_sources("resale")}
+Maintenance:
+{" ".join(market_ctx["maintenance"][:1])}
 
-    RELIABILITY SOURCES:
-    {format_sources("reliability")}
+Depreciation:
+{" ".join(market_ctx["depreciation"][:1])}
 
-    MAINTENANCE SOURCES:
-    {format_sources("maintenance")}
+FORMAT STRICTLY:
 
-    DEPRECIATION SOURCES:
-    {format_sources("depreciation")}
-
-    =====================================
-    OUTPUT FORMAT (MANDATORY)
-
-    ### 💰 Does this listed price make sense?
-    - Statement referencing predicted vs listed price.
-    - Statement explaining gap.
-
-    ### 📊 Market factors influencing this price
-    - Resale value assessment. **(Source: …)**
-    - Reliability or maintenance assessment. **(Source: …)**
-
-    ### 🧭 What you should do next
-    - Negotiation or buy/wait advice.
-    - One risk or consideration.
-
-    RULES:
-    - Every market claim MUST end with (Source: <name>)
-    - Do NOT paraphrase sources
-    - Do NOT omit sources
-    """
-
+### 💰 Does this listed price make sense?
+### 📊 How the listed price compares
+### 🧭 What you should do next
+"""
 
     with st.spinner("Generating explanation…"):
         expl = client.chat.completions.create(
@@ -385,3 +348,5 @@ Text:
     st.divider()
     st.markdown("### 🧠 Market Explanation")
     st.markdown(clean_llm_markdown(expl.choices[0].message.content))
+
+
