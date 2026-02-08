@@ -423,13 +423,14 @@ Return JSON only:
                 )
 
             st.divider()
-            st.markdown("### 🧠 Market Explanation")
 
             def clean_llm_text(text: str) -> str:
                 return " ".join(text.split())
         
+            st.markdown("### 🧠 Market Explanation")
+
             cleaned = clean_llm_text(expl.choices[0].message.content)
-            st.markdown(cleaned)
+            st.write(cleaned)
 
 
 
