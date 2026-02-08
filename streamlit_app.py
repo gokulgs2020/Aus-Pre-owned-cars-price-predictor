@@ -1,5 +1,3 @@
- 
-
 import os
 import json
 import re
@@ -11,9 +9,12 @@ from datetime import datetime
 from openai import OpenAI
 
 # =====================================================
-# CONFIG (must be first Streamlit call)
+# CONFIG (FIRST STREAMLIT CALL)
 # =====================================================
-st.set_page_config(page_title="Preowned Car Price Estimator", layout="centered")
+st.set_page_config(
+    page_title="Preowned Car Price Estimator",
+    layout="centered"
+)
 
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
@@ -28,85 +29,53 @@ client = OpenAI(api_key=api_key)
 def parse_numeric(value):
     if value is None:
         return None
-
     if isinstance(value, (int, float)):
         return float(value)
 
     if isinstance(value, str):
         v = value.lower().strip()
-
-        # handle MY20, MY21
         if v.startswith("my") and v[2:].isdigit():
             return float("20" + v[2:])
-
-        v = v.replace("kms", "").replace("km", "")
-        v = v.replace(",", "").replace("$", "")
-        v = v.replace("k", "000")
-
+        v = (
+            v.replace("kms", "")
+             .replace("km", "")
+             .replace(",", "")
+             .replace("$", "")
+             .replace("k", "000")
+        )
         nums = re.findall(r"\d+", v)
-        if nums:
-            return float("".join(nums))
+        return float("".join(nums)) if nums else None
 
     return None
 
+
 def safe_json_parse(text: str):
-    """
-    Parses JSON returned by the LLM, handling ```json fences if present.
-    """
     t = (text or "").strip()
-    if not t:
-        raise ValueError("Empty LLM response")
-
     if t.startswith("```"):
-        parts = t.split("```")
-        t = parts[1] if len(parts) > 1 else parts[0]
-        t = t.strip()
+        t = t.split("```")[1]
         if t.startswith("json"):
-            t = t[4:].strip()
-
+            t = t[4:]
     return json.loads(t.strip())
 
+
 def clean_llm_markdown(text: str) -> str:
-    """
-    Keeps markdown structure, removes empty lines, avoids per-character line breaks.
-    """
     if not text:
         return ""
-    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-    return "\n".join(lines)
+    text = text.replace("\u200b", "").replace("\u00a0", " ")
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return "\n\n".join(lines)
 
-# =====================================================
-# PERCEPTION TOOLS (controlled text)
-# =====================================================
-def tool_reliability(brand, model):
-    if str(brand).lower() == "toyota":
-        return (
-            "Toyota models are widely regarded for mechanical reliability and long-term durability, "
-            "with fewer major ownership issues than many peers."
-        )
+
+def normalize_text(x):
     return (
-        "There are no strong signals suggesting unusual reliability risks; expectations generally align with segment norms."
-    )
-
-def tool_maintenance(brand, model):
-    if str(brand).lower() == "toyota":
-        return (
-            "Toyota benefits from a broad service network, readily available spare parts, and relatively low ownership friction."
-        )
-    return "Maintenance and servicing requirements are broadly in line with segment expectations."
-
-def tool_resale(brand, model):
-    if str(brand).lower() == "toyota":
-        return "Toyota vehicles typically command strong used-market demand, supporting above-average resale value."
-    return "Resale demand generally reflects overall segment dynamics rather than brand-specific premiums."
-
-def tool_depreciation(brand, model):
-    return (
-        "Vehicles in this segment typically experience steeper depreciation in early years, followed by gradual value stabilisation over time."
+        str(x).lower().strip()
+        .replace("-", "")
+        .replace(" ", "")
+        .replace("_", "")
     )
 
 # =====================================================
-# LOAD ARTIFACTS
+# LOAD ML ARTIFACTS
 # =====================================================
 @st.cache_resource
 def load_artifacts():
@@ -115,74 +84,83 @@ def load_artifacts():
     b = pd.read_csv("models/new_price_lookup_b.csv")
     lookup = pd.read_csv("models/brand_model_lookup_50.csv")
 
-    # normalize keys to reduce lookup mismatches
     for df_ in (bm, b, lookup):
-        if "Brand" in df_.columns:
-            df_["Brand"] = df_["Brand"].astype(str).str.strip()
-        if "Model" in df_.columns:
-            df_["Model"] = df_["Model"].astype(str).str.strip()
+        for c in ("Brand", "Model"):
+            if c in df_.columns:
+                df_[c] = df_[c].astype(str).str.strip()
 
     return pipe, bm, b, lookup
 
+
 pipe, bm, b, brand_model_lookup = load_artifacts()
 
-def normalize_text(x):
-    if not x:
-        return ""
-    return (
-        str(x)
-        .lower()
-        .strip()
-        .replace("-", "")
-        .replace(" ", "")
-        .replace("_", "")
-    )
+# =====================================================
+# LOAD MARKET SOURCES (CITATIONS)
+# =====================================================
+@st.cache_resource
+def load_market_sources():
+    with open("data/market_sources.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+MARKET_SOURCES = load_market_sources()
+
+def get_market_sources_for_brand(brand: str):
+    brand_l = brand.lower()
+    result = {
+        "resale": [],
+        "maintenance": [],
+        "reliability": [],
+        "depreciation": []
+    }
+
+    for entry in MARKET_SOURCES:
+        brands = [b.lower() for b in entry.get("brands", [])]
+        if brand_l in brands or "all" in brands:
+            topic = entry["topic"].lower()
+            if topic in result:
+                result[topic].append(
+                    f"{entry['text']} (Source: {entry['source']})"
+                )
+
+    return result
 
 # =====================================================
 # PRICE LOOKUP
 # =====================================================
 def lookup_new_price(brand, model):
-    brand_n = normalize_text(brand)
-    model_n = normalize_text(model)
+    bn, mn = normalize_text(brand), normalize_text(model)
 
-    bm_copy = bm.copy()
-    b_copy = b.copy()
+    bm_ = bm.assign(
+        Brand_n=bm["Brand"].apply(normalize_text),
+        Model_n=bm["Model"].apply(normalize_text)
+    )
 
-    bm_copy["Brand_n"] = bm_copy["Brand"].apply(normalize_text)
-    bm_copy["Model_n"] = bm_copy["Model"].apply(normalize_text)
-    b_copy["Brand_n"] = b_copy["Brand"].apply(normalize_text)
-
-    # 1️⃣ Model-level match (contains handles trims)
-    model_match = bm_copy[
-        (bm_copy["Brand_n"] == brand_n) &
-        (bm_copy["Model_n"].str.contains(model_n))
+    row = bm_[
+        (bm_["Brand_n"] == bn) &
+        (bm_["Model_n"].str.contains(mn))
     ]
 
-    if not model_match.empty:
-        return float(model_match["New_Price_bm"].iloc[0])
+    if not row.empty:
+        return float(row.iloc[0]["New_Price_bm"])
 
-    # 2️⃣ Brand-level fallback
-    brand_match = b_copy[b_copy["Brand_n"] == brand_n]
+    b_ = b.assign(Brand_n=b["Brand"].apply(normalize_text))
+    row = b_[b_["Brand_n"] == bn]
 
-    if not brand_match.empty:
-        return float(brand_match["New_Price_b"].iloc[0])
-
-    return float("nan")
-
+    return float(row.iloc[0]["New_Price_b"]) if not row.empty else np.nan
 
 # =====================================================
-# FEATURE BUILDER (keep as-is for your model)
+# FEATURE BUILDER
 # =====================================================
 def make_features(brand, model, age, km):
     return pd.DataFrame([{
-        "Age": float(age),
-        "log_km": float(np.log1p(km)),
+        "Age": age,
+        "log_km": np.log1p(km),
         "FuelConsumption": 7.5,
         "CylindersinEngine": 4,
         "Seats": 5,
-        "age_kilometer_interaction": (float(age) * float(km)) / 10000.0,
-        "Brand": str(brand).strip(),
-        "Model": str(model).strip(),
+        "age_kilometer_interaction": (age * km) / 10000,
+        "Brand": brand,
+        "Model": model,
         "UsedOrNew": "USED",
         "DriveType": "FWD",
         "BodyType": "Sedan",
@@ -193,82 +171,75 @@ def make_features(brand, model, age, km):
 # =====================================================
 # SESSION STATE
 # =====================================================
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-if "vehicle_data" not in st.session_state:
-    st.session_state.vehicle_data = {}
+st.session_state.setdefault("chat_history", [])
+st.session_state.setdefault("vehicle_data", {})
 
 # =====================================================
-# UI TABS
+# UI
 # =====================================================
 tab1, tab2 = st.tabs(["🚗 Price Estimator", "🤖 Deal Advisor"])
 
 # =====================================================
-# TAB 1 — ESTIMATOR
+# TAB 1 — PRICE ESTIMATOR
 # =====================================================
 with tab1:
     st.header("Price Estimator")
 
-    brands = sorted(brand_model_lookup["Brand"].dropna().unique())
-    brand = st.selectbox("Brand", brands)
-
-    models = sorted(
-        brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"]
-        .dropna()
-        .unique()
+    brand = st.selectbox(
+        "Brand",
+        sorted(brand_model_lookup["Brand"].unique())
     )
-    model = st.selectbox("Model", models)
+
+    model = st.selectbox(
+        "Model",
+        sorted(
+            brand_model_lookup[
+                brand_model_lookup["Brand"] == brand
+            ]["Model"].unique()
+        )
+    )
 
     year = st.number_input("Year", 2000, datetime.now().year, 2020)
     km = st.number_input("Kilometres", 0, 200000, 60000)
 
-    if st.button("Estimate Price"):
-        age = datetime.now().year - int(year)
+    if st.button("Estimate Price", key="estimate_price"):
+        age = datetime.now().year - year
         new_price = lookup_new_price(brand, model)
 
         if np.isnan(new_price):
-            st.error("Brand/Model not in training data")
+            st.error("No market data for this Brand / Model.")
         else:
             X = make_features(brand, model, age, km)
-            log_ret = float(pipe.predict(X)[0])
-            retention = float(np.exp(log_ret))
-            pred_price = float(retention * new_price)
+            retention = float(np.exp(pipe.predict(X)[0]))
+            pred_price = retention * new_price
 
             st.success(f"Estimated Price: AU $ {pred_price:,.0f}")
             st.caption(
-                f"Retention: {retention * 100:.1f}% | Typical new price: AU $ {new_price:,.0f}"
+                f"Retention: {retention*100:.1f}% | Typical new price: AU $ {new_price:,.0f}"
             )
 
 # =====================================================
-# TAB 2 — DEAL ADVISOR
+# TAB 2 — DEAL ADVISOR (GEN AI)
 # =====================================================
 with tab2:
     st.header("Deal Advisor")
 
-    if st.button("🔄 Restart Conversation"):
+    if st.button("🔄 Restart", key="restart_chat"):
         st.session_state.chat_history = []
         st.session_state.vehicle_data = {}
         st.rerun()
 
     user_input = st.chat_input(
-        "Paste the listing details (Brand, Model, Year, Kms, Listed price in AUD)."
+        "Paste listing (Brand, Model, Year, Kms, Listed price in AUD)"
     )
 
     if user_input:
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        st.session_state.chat_history.append(
+            {"role": "user", "content": user_input}
+        )
 
         extract_prompt = f"""
-Extract vehicle details from the message.
-
-Current known data:
-{st.session_state.vehicle_data}
-
-Message:
-{user_input}
-
-Required fields (extract if present):
-Brand, Model, Year, Kilometres, Listed Price
+Extract vehicle details from the text.
 
 Return JSON only:
 {{
@@ -280,7 +251,9 @@ Return JSON only:
     "Listed Price": ""
   }}
 }}
-Do not include markdown code fences.
+
+Text:
+{user_input}
 """
 
         resp = client.chat.completions.create(
@@ -289,144 +262,84 @@ Do not include markdown code fences.
             temperature=0
         )
 
-        try:
-            parsed_llm = safe_json_parse(resp.choices[0].message.content)
-            st.session_state.vehicle_data.update(parsed_llm.get("extracted_data", {}))
-        except Exception:
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": "I couldn’t extract the details. Please rephrase with Brand, Model, Year, Kms, and Listed Price."
-            })
+        data = safe_json_parse(resp.choices[0].message.content)
+        st.session_state.vehicle_data.update(data["extracted_data"])
 
-    # show chat history
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
+    for m in st.session_state.chat_history:
+        with st.chat_message(m["role"]):
+            st.write(m["content"])
 
     # -------------------------------------------------
-    # VALIDATION & GATING (including Listed Price)
+    # VALIDATION
     # -------------------------------------------------
-    parsed = {}
-    missing_fields = []
+    v = st.session_state.vehicle_data
+    brand = v.get("Brand")
+    model = v.get("Model")
+    year = parse_numeric(v.get("Year"))
+    kms = parse_numeric(v.get("Kilometres"))
+    listed_price = parse_numeric(v.get("Listed Price"))
 
-    # Brand & Model
-    for field in ["Brand", "Model"]:
-        v = st.session_state.vehicle_data.get(field)
-        if isinstance(v, str) and v.strip():
-            parsed[field] = v.strip()
-        else:
-            missing_fields.append(field)
+    missing = [
+        k for k, val in {
+            "Brand": brand,
+            "Model": model,
+            "Year": year,
+            "Kilometres": kms,
+            "Listed Price": listed_price
+        }.items() if not val
+    ]
 
-    # Year, Kilometres, Listed Price (numeric)
-    year = parse_numeric(st.session_state.vehicle_data.get("Year"))
-    kms = parse_numeric(st.session_state.vehicle_data.get("Kilometres"))
-    listed_price = parse_numeric(st.session_state.vehicle_data.get("Listed Price"))
-
-    if year is None:
-        missing_fields.append("Year")
-    else:
-        parsed["Year"] = int(year)
-
-    if kms is None:
-        missing_fields.append("Kilometres")
-    else:
-        parsed["Kilometres"] = int(kms)
-
-    if listed_price is None:
-        missing_fields.append("Listed Price")
-    else:
-        parsed["Listed Price"] = int(listed_price)
-
-    if missing_fields:
+    if missing:
         st.chat_message("assistant").write(
-            f"I still need: {', '.join(missing_fields)}."
+            f"I still need: {', '.join(missing)}."
         )
         st.stop()
-
-    # -------------------------------------------------
-    # RUN VALUATION + EXPLANATION
-    # -------------------------------------------------
-    brand = parsed["Brand"]
-    model = parsed["Model"]
-    year = parsed["Year"]
-    kms = parsed["Kilometres"]
-    listed_price = parsed["Listed Price"]
 
     age = datetime.now().year - int(year)
     new_price = lookup_new_price(brand, model)
 
     if np.isnan(new_price):
         st.chat_message("assistant").write(
-            "I don’t have sufficient market data for this Brand / Model. Try a more common Brand/Model."
+            "I don’t have sufficient market data for this Brand / Model."
         )
         st.stop()
 
-    st.chat_message("assistant").write(
-        f"Got it 👍 {brand} {model}, {kms:,} km, listed at AU $ {listed_price:,}. Evaluating…"
-    )
-
     X = make_features(brand, model, age, kms)
-    log_ret = float(pipe.predict(X)[0])
-    retention = float(np.exp(log_ret))
-    pred_price = float(retention * new_price)
+    retention = float(np.exp(pipe.predict(X)[0]))
+    pred_price = retention * new_price
     gap_pct = round(((listed_price - pred_price) / pred_price) * 100, 1)
 
+    market_ctx = get_market_sources_for_brand(brand)
+
     explanation_prompt = f"""
-You are an automotive market advisor supporting a used-car buyer.
+You are advising a buyer on THIS listing.
 
-STRICT RULES:
-- Use ONLY the information provided below
-- Do NOT invent facts, statistics, URLs, or assumptions
-- Keep the response professional, concise, and structured
-- Use clean Markdown exactly as requested
+VEHICLE:
+{brand} {model}, {age} years, {kms} km
 
-VEHICLE DETAILS
-Brand: {brand}
-Model: {model}
-Vehicle Age (years): {age}
-Kilometres Driven: {kms}
+PRICES:
+Predicted: AU ${int(pred_price)}
+Listed: AU ${int(listed_price)}
+Gap: {gap_pct}%
 
-PRICING CONTEXT
-Typical New Price: AU ${int(new_price)}
-Model-Predicted Price: AU ${int(pred_price)}
-Implied Retention: {round(retention*100,1)}%
-Seller Listed Price: AU ${int(listed_price)}
-Price Gap vs Prediction: {gap_pct}%
+MARKET CONTEXT (CITE INLINE):
+Resale:
+{" ".join(market_ctx["resale"][:1])}
 
-MARKET CONTEXT (REFERENCE INFORMATION)
 Reliability:
-{tool_reliability(brand, model)}
+{" ".join(market_ctx["reliability"][:1])}
 
-Maintenance & After-Sales:
-{tool_maintenance(brand, model)}
+Maintenance:
+{" ".join(market_ctx["maintenance"][:1])}
 
-Resale Perception:
-{tool_resale(brand, model)}
+Depreciation:
+{" ".join(market_ctx["depreciation"][:1])}
 
-Depreciation Pattern:
-{tool_depreciation(brand, model)}
+FORMAT STRICTLY:
 
-OUTPUT RULES:
-- Use headings and bullets exactly in the format below
-- Each section MUST have exactly 2 bullet points
-- Each bullet point MUST be one sentence only
-
-FORMAT (mandatory):
-
-#### 🧾 Verdict on the deal
-**<ONE of: Great Bargain | Good Offer | Fair / On Par with Market | Slightly Overpriced | Significantly Overpriced>**
-
-#### 💰 Does this lsited price make sense?
-- ...
-- ...
-
-#### 📊 How the listed price compares
-- ...
-- ...
-
-#### 🧭 What you should do next
-- ...
-- ...
+### 💰 Does this listed price make sense?
+### 📊 How the listed price compares
+### 🧭 What you should do next
 """
 
     with st.spinner("Generating explanation…"):
@@ -438,7 +351,4 @@ FORMAT (mandatory):
 
     st.divider()
     st.markdown("### 🧠 Market Explanation")
-
-    cleaned = clean_llm_markdown(expl.choices[0].message.content)
-    st.markdown(cleaned)
-
+    st.markdown(clean_llm_markdown(expl.choices[0].message.content))
