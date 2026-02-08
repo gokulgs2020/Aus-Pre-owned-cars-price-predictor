@@ -311,36 +311,69 @@ Text:
 
     market_ctx = get_market_sources_for_brand(brand)
 
+    def format_sources(topic):
+        entries = market_ctx.get(topic, [])
+        if not entries:
+            return "No specific source found."
+        return "\n".join([f"- {e}" for e in entries[:2]])
+
+
     explanation_prompt = f"""
-You are advising a buyer on THIS listing.
+    You are an automotive market advisor.
 
-VEHICLE:
-{brand} {model}, {age} years, {kms} km
+    You MUST cite sources exactly as provided.
+    You are NOT allowed to add new sources.
+    If no source is available, explicitly say: "No source available."
 
-PRICES:
-Predicted: AU ${int(pred_price)}
-Listed: AU ${int(listed_price)}
-Gap: {gap_pct}%
+    =====================================
+    VEHICLE
+    Brand: {brand}
+    Model: {model}
+    Age: {age} years
+    Kilometres: {kms}
 
-MARKET CONTEXT (CITE INLINE):
-Resale:
-{" ".join(market_ctx["resale"][:1])}
+    =====================================
+    PRICING
+    Predicted Price: AU ${int(pred_price)}
+    Listed Price: AU ${int(listed_price)}
+    Price Gap: {gap_pct}%
 
-Reliability:
-{" ".join(market_ctx["reliability"][:1])}
+    =====================================
+    MARKET SOURCES (USE VERBATIM)
 
-Maintenance:
-{" ".join(market_ctx["maintenance"][:1])}
+    RESALE SOURCES:
+    {format_sources("resale")}
 
-Depreciation:
-{" ".join(market_ctx["depreciation"][:1])}
+    RELIABILITY SOURCES:
+    {format_sources("reliability")}
 
-FORMAT STRICTLY:
+    MAINTENANCE SOURCES:
+    {format_sources("maintenance")}
 
-### 💰 Does this listed price make sense?
-### 📊 How the listed price compares
-### 🧭 What you should do next
-"""
+    DEPRECIATION SOURCES:
+    {format_sources("depreciation")}
+
+    =====================================
+    OUTPUT FORMAT (MANDATORY)
+
+    ### 💰 Does this listed price make sense?
+    - Statement referencing predicted vs listed price.
+    - Statement explaining gap.
+
+    ### 📊 Market factors influencing this price
+    - Resale value assessment. **(Source: …)**
+    - Reliability or maintenance assessment. **(Source: …)**
+
+    ### 🧭 What you should do next
+    - Negotiation or buy/wait advice.
+    - One risk or consideration.
+
+    RULES:
+    - Every market claim MUST end with (Source: <name>)
+    - Do NOT paraphrase sources
+    - Do NOT omit sources
+    """
+
 
     with st.spinner("Generating explanation…"):
         expl = client.chat.completions.create(
