@@ -206,7 +206,7 @@ with tab2:
         st.session_state.vehicle_data = {}
         st.rerun()
 
-    user_input = st.chat_input("Paste the details of your the car listing you are interested in, kindly include Brand, Model, Kms driven and listed price")
+    user_input = st.chat_input("Paste the details of your the car listing (Brand, Model, Kms driven and listed price in AUD)")
 
     if user_input:
         st.session_state.chat_history.append(
@@ -356,8 +356,8 @@ Return JSON only:
 
     Explain in short bullets:
     - classify deal
-    - explain price gap
-    - suggest negotiation advice
+    - explain price gap using reasons based on RELIABILITY, MAINTENANCE, RESALE and DEPRECIATION
+    - suggest negotiation advice, if bargain advice to proceed with caution if there are other flaws in physical veihcle, damages or accidents, if overpriced, use predicted price data and inputs on RELIABILITY, MAINTENANCE, RESALE and DEPRECIATION to negotiate  
     """
 
             with st.spinner("Generating explanation…"):
