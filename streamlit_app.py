@@ -366,35 +366,69 @@ Rules:
     market_ctx = get_market_sources_for_brand(brand)
 
     explanation_prompt = f"""
-You are a preowned cars sales expert, advising a buyer on THIS listing.
+    You are a pre-owned car market advisor helping a buyer evaluate THIS specific listing.
 
-VEHICLE:
-{brand} {model}, {age} years, {kms} km
+    IMPORTANT RULES (STRICT):
+    - Write clearly and professionally for a consumer audience.
+    - Do NOT invent facts, numbers, or sources.
+    - Every statement about resale value, reliability, maintenance, or depreciation MUST explicitly reference one of the provided sources.
+    - Use the phrase “Source: <source name>” inline whenever making a market claim.
+    - If no source supports a claim, state “No specific source available”.
+    - Never split numbers or currency across lines.
+    - Always anchor explanations to THIS vehicle.
 
-PRICES:
-Predicted: AU ${int(pred_price)}
-Listed: AU ${int(listed_price)}
-Gap: {gap_pct}%
+    =====================================
+    VEHICLE CONTEXT
+    Brand: {brand}
+    Model: {model}
+    Vehicle Age: {age} years
+    Kilometres Driven: {kms}
 
-MARKET CONTEXT (CITE INLINE):
-Resale:
-{" ".join(market_ctx["resale"][:1])}
+    =====================================
+    PRICING CONTEXT
+    Model-Predicted Price (based on age, mileage, retention): AU ${int(pred_price)}
+    Seller Listed Price: AU ${int(listed_price)}
+    Price Gap vs Prediction: {gap_pct}%
 
-Reliability:
-{" ".join(market_ctx["reliability"][:1])}
+    =====================================
+    MARKET CONTEXT (APPROVED SOURCES ONLY)
 
-Maintenance:
-{" ".join(market_ctx["maintenance"][:1])}
+    Resale Value:
+    {" ".join(market_ctx["resale"][:1])}
 
-Depreciation:
-{" ".join(market_ctx["depreciation"][:1])}
+    Reliability:
+    {" ".join(market_ctx["reliability"][:1])}
 
-FORMAT STRICTLY:
+    Maintenance & After-Sales:
+    {" ".join(market_ctx["maintenance"][:1])}
 
-### 💰 Does this listed price make sense?
-### 📊 How the listed price compares
-### 🧭 What you should do next
-"""
+    Depreciation:
+    {" ".join(market_ctx["depreciation"][:1])}
+
+    =====================================
+    TASK
+
+    Generate a buyer-facing explanation using EXACTLY the structure below.
+    Do NOT add extra sections.
+    Do NOT remove section headers.
+
+    =====================================
+    OUTPUT FORMAT (MANDATORY)
+
+    ### 💰 Does this listed price make sense?
+    - For this {brand} {model} with {age} years and {kms} km, the seller’s listed price of AU ${int(listed_price)} is above or below the model-predicted price of AU ${int(pred_price)}, which is derived from brand, model, mileage, and typical retention.
+    - The price gap of {gap_pct}% suggests the vehicle is fairly priced, slightly overpriced, or significantly overpriced relative to current market expectations.
+
+    ### 📊 How the listed price compares
+    - The typical new price of a {brand} {model} in Australia is reflected in the retention-based valuation used here, with minor variation across states due to taxes and availability.
+    - Based on available market commentary, {brand} vehicles generally show strong, average, or weaker resale performance. Source: <insert source name>.
+    - Maintenance and reliability expectations for this model are considered favourable, average, or mixed, which influences buyer demand and resale confidence. Source: <insert source name>.
+
+    ### 🧭 What you should do next
+    - If negotiating, use the model-predicted price of AU ${int(pred_price)} as a reference point, supported by depreciation and resale trends. Source: <insert source name or “No specific source available”>.
+    - If you are specifically seeking a {brand} {model}, consider whether paying a premium is justified by condition, service history, and availability in the market.
+
+    """
 
     with st.spinner("Generating explanation…"):
         expl = client.chat.completions.create(
