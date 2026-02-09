@@ -76,7 +76,7 @@ def validate_data_plausibility(brand, model, year, kms, price):
     if year >= 2022 and price < 10000:
         warnings.append(f"⚠️ **Price Alert:** AU ${price:,} for a {year} model is suspiciously low. Verify if this is a scam.")
     
-    # High Mileage Check: Adjusted to 25k to catch your 60k/2yr example
+    # High Mileage Check
     if km_per_year > 25000:
         warnings.append(f"🏎️ **High Usage:** This {brand} has averaged {int(km_per_year):,} km/year. The Australian average is ~13,000km. Source: ABS.")
     
@@ -192,12 +192,12 @@ else:
                 gap = ((price - pred) / pred) * 100
                 
                 # 1-Word Verdict
-                if gap < -15: verdict, color = "VERY LOW", "red"
+                if gap < -15: verdict, color = "VERY LOW!", "orange"
                 elif gap < -5: verdict, color = "BARGAIN", "green"
                 elif gap <= 5: verdict, color = "FAIR PRICED", "blue"
-                else: verdict, color = "OVER PRICED", "orange"
+                else: verdict, color = "OVER PRICED!", "orange"
 
-                st.markdown(f"## Verdict: :{color}[{verdict}]")
+                st.markdown(f"### Verdict on the listed price: :{color}[{verdict}]")
                 
                 # Market Sources Integration
                 m_ctx = get_market_sources_for_brand(brand)
@@ -215,6 +215,7 @@ else:
 
                 Write a 3-section report. Integrate the provided market data naturally. 
                 Adapt your tone to {brand}. Do NOT use a template.
+                Provide the response in plain conversational English. Do not use Markdown code blocks, LaTeX, or special symbols. Use standard sentence casing and spacing.
                 """
 
                 with st.spinner("Synthesizing market report..."):
