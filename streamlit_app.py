@@ -25,7 +25,6 @@ client = OpenAI(api_key=api_key)
 # =====================================================
 @st.cache_resource
 def load_artifacts():
-    # Load model and lookup tables
     pipe = joblib.load("models/final_price_pipe.joblib")
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
@@ -36,8 +35,11 @@ pipe, bm, b, brand_model_lookup = load_artifacts()
 
 @st.cache_resource
 def load_market_sources():
-    with open("data/market_sources.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open("data/market_sources.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
 
 MARKET_SOURCES = load_market_sources()
 
@@ -64,27 +66,9 @@ def safe_json_parse(text: str):
         t = (text or "").strip()
         if t.startswith("```"):
             t = t.split("```")[1]
-            if t.startswith("json"):
-                t = t[4:]
+            if t.startswith("json"): t = t[4:]
         return json.loads(t.strip())
-    except:
-        return {}
-
-def validate_data_plausibility(brand, model, year, kms, price):
-    warnings = []
-    age = max(1, 2026 - year) 
-    km_per_year = kms / age
-    
-    if year >= 2022 and price < 10000:
-        warnings.append(f"⚠️ **Price Alert:** AU \${price:,} for a {year} model is suspiciously low. Verify if this is a scam.")
-    
-    if km_per_year > 25000:
-        warnings.append(f"🏎️ **High Usage:** This {brand} has averaged {int(km_per_year):,} km/year. (AU avg ~13,000km).")
-    
-    if year <= 2024 and kms < 1500:
-        warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,} km on a {year} model. Verify odometer.")
-    
-    return warnings
+    except: return {}
 
 def lookup_new_price(brand, model):
     bn, mn = str(brand).lower().replace(" ", ""), str(model).lower().replace(" ", "")
@@ -103,7 +87,7 @@ def lookup_new_price(brand, model):
 # =====================================================
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "vehicle_data" not in st.session_state: 
-    st.session_state.vehicle_data = {"Brand": None, "Model": None, "Year": None, "Kilometres": None, "Listed Price": None}
+    st.session_state.vehicle_data = {"Brand": "Toyota", "Model": "Corolla", "Year": 2020, "Kilometres": 50000, "Listed Price": 25000}
 if "confirmed_plausibility" not in st.session_state: st.session_state.confirmed_plausibility = False
 
 # =====================================================
@@ -111,132 +95,113 @@ if "confirmed_plausibility" not in st.session_state: st.session_state.confirmed_
 # =====================================================
 st.title("🤖 AI Car Deal Advisor")
 
-# Create Tabs
-tab1, tab2 = st.tabs(["📊 Price Estimator & Chat", "💡 AI Deal Analysis"])
+tab1, tab2 = st.tabs(["📊 Price Estimator", "💡 AI Deal Analysis"])
 
 with tab1:
-    # 📋 LIVE DASHBOARD
-    st.write("### 📋 Extracted Data")
-    v = st.session_state.vehicle_data
-    d1, d2, d3, d4, d5 = st.columns(5)
-    d1.metric("Brand", v["Brand"] or "-")
-    d2.metric("Model", v["Model"] or "-")
-    d3.metric("Year", v["Year"] or "-")
-    d4.metric("Km", f"{v['Kilometres']:,}" if v["Kilometres"] else "-")
-    d5.metric("Price", f"\${v['Listed Price']:,}" if v["Listed Price"] else "-")
+    st.subheader("Manual Input & Refinement")
+    
+    # Grid Layout for Manual Inputs
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Brand Dropdown (Getting unique brands from lookup)
+        available_brands = sorted(brand_model_lookup['Brand'].unique())
+        brand_idx = available_brands.index(st.session_state.vehicle_data["Brand"]) if st.session_state.vehicle_data["Brand"] in available_brands else 0
+        new_brand = st.selectbox("Brand", available_brands, index=brand_idx)
+        
+        # Model Dropdown (Filter based on Brand)
+        available_models = sorted(brand_model_lookup[brand_model_lookup['Brand'] == new_brand]['Model'].unique())
+        model_idx = available_models.index(st.session_state.vehicle_data["Model"]) if st.session_state.vehicle_data["Model"] in available_models else 0
+        new_model = st.selectbox("Model", available_models, index=model_idx)
 
-    if st.button("Reset Advisor"):
-        st.session_state.chat_history = []
-        st.session_state.vehicle_data = {k: None for k in st.session_state.vehicle_data}
-        st.session_state.confirmed_plausibility = False
-        st.rerun()
+    with col2:
+        new_year = st.slider("Year", 2000, 2026, int(st.session_state.vehicle_data["Year"]))
+        new_kms = st.number_input("Kilometres", value=int(st.session_state.vehicle_data["Kilometres"]), step=1000)
+
+    with col3:
+        new_price = st.number_input("Listed Price (AUD)", value=int(st.session_state.vehicle_data["Listed Price"]), step=500)
+        if st.button("Reset All Data"):
+            st.session_state.vehicle_data = {"Brand": "Toyota", "Model": "Corolla", "Year": 2020, "Kilometres": 50000, "Listed Price": 25000}
+            st.rerun()
+
+    # Sync UI changes back to Session State
+    st.session_state.vehicle_data.update({
+        "Brand": new_brand, "Model": new_model, "Year": new_year, 
+        "Kilometres": new_kms, "Listed Price": new_price
+    })
+
+    st.divider()
+    st.write("### 💬 Chat Assistant")
+    st.caption("Paste a listing here to auto-fill the sliders and boxes above.")
 
     # Display Chat
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"].replace("$", "\$")) # Prevent LaTeX italics
+            st.markdown(msg["content"].replace("$", "\$"))
 
-    # SMART EXTRACTION
-    user_input = st.chat_input("Enter details (e.g. 2020 Toyota Kluger 66000kms $50000)")
+    # Smart Chat Input
+    user_input = st.chat_input("e.g., 'I actually meant 40,000km' or paste a full ad description")
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         extract_prompt = f"Current Data: {st.session_state.vehicle_data}\nMessage: {user_input}\nUpdate JSON. Return ONLY JSON."
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "You are a car data assistant. Update the JSON based on the user's message. Return ONLY JSON."},
+            messages=[{"role": "system", "content": "Update car data JSON based on user input. Return ONLY JSON."},
                       {"role": "user", "content": extract_prompt}],
             temperature=0
         )
-        new_data = safe_json_parse(resp.choices[0].message.content)
-        for key in st.session_state.vehicle_data:
-            if new_data.get(key) is not None: 
-                st.session_state.vehicle_data[key] = new_data[key]
-        st.session_state.confirmed_plausibility = False
+        extracted = safe_json_parse(resp.choices[0].message.content)
+        if extracted:
+            st.session_state.vehicle_data.update({k: v for k, v in extracted.items() if v is not None})
         st.rerun()
 
 with tab2:
     v_curr = st.session_state.vehicle_data
-    required = ["Brand", "Model", "Year", "Kilometres", "Listed Price"]
-    missing = [r for r in required if v_curr[r] is None or v_curr[r] == "-"]
+    brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
+    year, kms, price = v_curr["Year"], v_curr["Kilometres"], v_curr["Listed Price"]
 
-    if missing:
-        st.info(f"Please provide the following details in the Estimator tab: {', '.join(missing)}")
+    # Price Calculation
+    new_p = lookup_new_price(brand, model)
+    if np.isnan(new_p):
+        st.error(f"⚠️ Could not find base pricing for {brand} {model}.")
     else:
-        brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
-        year, kms = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"])
-        price = parse_numeric(v_curr["Listed Price"])
+        age = 2026 - year
+        X = pd.DataFrame([{
+            "Age": age, "log_km": np.log1p(kms), "Brand": brand, "Model": model,
+            "FuelConsumption": 8.0, "CylindersinEngine": 4, "Seats": 5,
+            "age_kilometer_interaction": (age * kms) / 10000, "UsedOrNew": "USED",
+            "DriveType": "AWD" if "SUV" in model else "FWD", 
+            "BodyType": "SUV" if "SUV" in model else "Sedan", 
+            "Transmission": "Automatic", "FuelType": "Gasoline"
+        }])
         
-        # PLAUSIBILITY CHECK
-        warnings = validate_data_plausibility(brand, model, year, kms, price)
-        if warnings and not st.session_state.confirmed_plausibility:
-            st.error("### 🛑 Data Anomaly Detected")
-            for w in warnings: st.write(w)
-            if st.button("Yes, these details are correct"):
-                st.session_state.confirmed_plausibility = True
-                st.rerun()
-            st.stop()
+        pred = np.exp(pipe.predict(X)[0]) * new_p
+        gap = ((price - pred) / pred) * 100
+        
+        # Verdict Header
+        if gap < -15: verdict, color = "VERY LOW!", "orange"
+        elif gap < -5: verdict, color = "BARGAIN", "green"
+        elif gap <= 5: verdict, color = "FAIR PRICED", "blue"
+        else: verdict, color = "OVER PRICED!", "red"
 
-        # VERDICT CALCULATION
-        new_p = lookup_new_price(brand, model)
-        if np.isnan(new_p):
-            st.warning("⚠️ Baseline market price not found for this model.")
-        else:
-            age = 2026 - year
-            X = pd.DataFrame([{
-                "Age": age, "log_km": np.log1p(kms), "Brand": brand, "Model": model,
-                "FuelConsumption": 7.5, "CylindersinEngine": 4, "Seats": 5,
-                "age_kilometer_interaction": (age * kms) / 10000, "UsedOrNew": "USED",
-                "DriveType": "FWD", "BodyType": "Sedan", "Transmission": "Automatic", "FuelType": "Gasoline"
-            }])
+        st.markdown(f"## Verdict: :{color}[{verdict}]")
+        
+        # Narrative Report
+        m_ctx = get_market_sources_for_brand(brand)
+        report_prompt = f"""
+        Listing: {year} {brand} {model}, {kms}km, \${price}. 
+        Prediction: \${pred:.0f}. Gap: {gap:.1f}%. 
+        Verdict: {verdict}.
+        Market Context: {m_ctx}
+        
+        Write a 3-section professional report. Escape \$ symbols. Cite sources.
+        """
+
+        with st.spinner("Analyzing Deal..."):
+            report = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": report_prompt}],
+                temperature=0.7
+            ).choices[0].message.content
             
-            pred = np.exp(pipe.predict(X)[0]) * new_p
-            gap = ((price - pred) / pred) * 100
-            
-            # 1-Word Verdict with color
-            if gap < -15: verdict, color = "VERY LOW!", "orange"
-            elif gap < -5: verdict, color = "BARGAIN", "green"
-            elif gap <= 5: verdict, color = "FAIR PRICED", "blue"
-            else: verdict, color = "OVER PRICED!", "orange"
-
-            st.markdown(f"## Verdict: :{color}[{verdict}]")
-            
-            # Market Sources Integration
-            m_ctx = get_market_sources_for_brand(brand)
-            
-            report_prompt = f"""
-            Analyze this listing: {year} {brand} {model}, {kms:,}km, ${price:,.0f}.
-            Our prediction: ${pred:,.0f} (Gap: {gap:.1f}%). 
-            Verdict: {verdict}.
-
-            MARKET DATA (MUST CITE SOURCES FROM THIS DATA):
-            Resale: {m_ctx['resale']}
-            Reliability: {m_ctx['reliability']}
-            Maintenance: {m_ctx['maintenance']}
-            Depreciation: {m_ctx['depreciation']}
-
-            Write a professional 3-section report. 
-            Section 1: Deal Summary.
-            Section 2: Brand & Reliability Citations.
-            Section 3: Resale & Maintenance Outlook.
-
-            Rules:
-            1. Use plain English.
-            2. ALWAYS escape dollar signs with backslash (e.g. \$50,000) to avoid LaTeX errors.
-            3. Do not use code blocks or symbols.
-            4. Integrate citations (e.g. 'Source: REDBOOK') naturally.
-            """
-
-            with st.spinner("Synthesizing market report..."):
-                report = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "system", "content": "You are a professional Australian auto-analyst."},
-                              {"role": "user", "content": report_prompt}],
-                    temperature=0.7
-                ).choices[0].message.content
-                
-                # Output the report
-                st.write(report.replace("$", "\$"))
-                
-                # Save to history if it's new
-                if not st.session_state.chat_history or "Verdict:" not in st.session_state.chat_history[-1]["content"]:
-                    st.session_state.chat_history.append({"role": "assistant", "content": f"**Verdict: {verdict}**\n\n{report}"})
+            st.write(report.replace("$", "\$"))
