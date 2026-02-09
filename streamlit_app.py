@@ -228,69 +228,41 @@ else:
         st.stop()
 
     # Analysis Generation
-    if st.session_state.chat_history and st.session_state.chat_history[-1]["role"] == "user":
-        with st.chat_message("assistant"):
-            new_p = lookup_new_price(brand, model)
-            
-            if np.isnan(new_p):
-                st.error(f"Could not find baseline pricing for a {brand} {model} in our Australian database.")
-            else:
-                # ML Prediction
-                age = 2026 - year
-                X = pd.DataFrame([{
-                    "Age": age, "log_km": np.log1p(kms), "Brand": brand, "Model": model,
-                    "FuelConsumption": 7.5, "CylindersinEngine": 4, "Seats": 5,
-                    "age_kilometer_interaction": (age * kms) / 10000, "UsedOrNew": "USED",
-                    "DriveType": "FWD", "BodyType": "Sedan", "Transmission": "Automatic", "FuelType": "Gasoline"
-                }])
-                
-                pred_raw = pipe.predict(X)[0]
-                pred = np.exp(pred_raw) * new_p
-                gap = ((price - pred) / pred) * 100
-                
-                # Verdict Styling
-                if gap < -15: verdict, color = "VERY LOW! (Check for issues)", "orange"
-                elif gap < -5: verdict, color = "BARGAIN", "green"
-                elif gap <= 7: verdict, color = "FAIRLY PRICED", "blue"
-                else: verdict, color = "OVERPRICED!", "red"
 
-                st.subheader(f"Verdict: :{color}[{verdict}]")
-                
-                # Narrative & Audit
-                m_ctx = get_market_sources_for_brand(brand)
-                report_prompt = f"""
-                Analyze: {year} {brand} {model}, {kms:,.0f}km, listed at \${price:,.0f}.
-                Our Model Predicts: \${pred:,.0f} (Gap: {gap:.1f}%). 
-                
-                CONTEXT: {m_ctx}
-                
-                FORMAT: 3 sections separated by '---'. 
-                Section 1: Verdict Summary. 
-                Section 2: Brand/Model Insights. 
-                Section 3: Resale Parameters.
-                Use Australian English. Escape all $ with \$.
-                """
-
-                with st.spinner("🔍 Performing Critic Audit..."):
-                    raw_report = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role": "system", "content": "You are a professional Australian automotive valuations expert."},
-                                  {"role": "user", "content": report_prompt}],
-                        temperature=0.7
-                    ).choices[0].message.content
-                    
-                    # Final Audit
-                    ml_data = {"price": price, "pred": pred, "gap": round(gap, 1), "verdict": verdict}
-                    audit = run_critic_audit(ml_data, raw_report)
-                    final_report = audit.suggested_fix if not audit.is_factual else raw_report
-                    
-                    # UI Rendering
-                    sections = final_report.split("---")
-                    labels = ["📢 Verdict Summary", "💡 Brand & Model Insights", "📉 Resale & Market Outlook"]
-                    
-                    for i, section in enumerate(sections):
-                        if i < len(labels):
-                            st.markdown(f"**{labels[i]}**")
-                            st.write(section.strip())
-                    
-                    st.session_state.chat_history.append({"role": "assistant", "content": final_report})
+    with st.spinner("🔍 Performing Critic Audit..."):
+        # 1. Get the initial narrative
+        raw_report = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": "You are a professional Australian automotive valuations expert."},
+                    {"role": "user", "content": report_prompt}],
+            temperature=0.7
+        ).choices[0].message.content
+        
+        # 2. Run Audit
+        ml_data = {"price": price, "pred": pred, "gap": round(gap, 1), "verdict": verdict}
+        audit = run_critic_audit(ml_data, raw_report)
+        
+        # 3. Handle the output logic
+        if not audit.is_factual:
+            # If the audit finds an error, we ask the model to regenerate the FULL report
+            # using the 'suggested_fix' as the grounding guide.
+            correction_prompt = f"Original Draft: {raw_report}\n\nCorrection Needed: {audit.suggested_fix}\n\nRewrite the FULL 3-section report with these corrections. Keep the '---' separators."
+            final_report = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": correction_prompt}]
+            ).choices[0].message.content
+        else:
+            final_report = raw_report
+        
+        # 4. Clean and Split for UI
+        # We strip extra whitespace to ensure the split works even if the LLM adds newlines
+        sections = [s.strip() for s in final_report.split("---") if s.strip()]
+        labels = ["📢 Verdict Summary", "💡 Brand & Model Insights", "📉 Resale & Market Outlook"]
+        
+        for i, section in enumerate(sections):
+            if i < len(labels):
+                st.markdown(f"### {labels[i]}")
+                # Replace escaped \$ with real $ for final display in st.write
+                st.write(section.replace(r"\$", "$"))
+        
+        st.session_state.chat_history.append({"role": "assistant", "content": final_report})
