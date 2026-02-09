@@ -95,6 +95,24 @@ def lookup_new_price(brand, model):
     match_b = b_copy[b_copy['bn'] == bn]
     return float(match_b.iloc[0]["New_Price_b"]) if not match_b.empty else np.nan
 
+def validate_data_plausibility(brand, model, year, kms, price):
+    warnings = []
+    age = max(1, 2026 - year)
+    km_per_year = kms / age
+
+    # Scam Detection: Price vs. Age
+    if year >= 2022 and price < 8000:
+        warnings.append(f"⚠️ **Price Alert:** AU ${price:,} for a {year} vehicle is significantly below market value. Be extremely cautious of potential scams.")
+
+    # Extreme Mileage: High
+    if km_per_year > 50000:
+        warnings.append(f"🏎️ **Extreme Usage:** This car has averaged over {int(km_per_year):,} km/year. This is double the Australian average.")
+
+    # Extreme Mileage: Low
+    if year <= 2023 and kms < 1000:
+        warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,} km on a {year} model. Please verify if the odometer is accurate.")
+
+    return warnings
 # =====================================================
 # SESSION STATE
 # =====================================================
@@ -171,10 +189,32 @@ with tab2:
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             with st.chat_message("assistant"): st.write(msg)
         else:
+            # 2. PLAUSIBILITY CHECK (The New Guardrail)
             brand, model = v_data["Brand"], v_data["Model"]
             year, kms = parse_numeric(v_data["Year"]), parse_numeric(v_data["Kilometres"])
             price = parse_numeric(v_data["Listed Price"])
             
+            # Generate warnings based on Australian market norms
+            sanity_warnings = validate_data_plausibility(brand, model, year, kms, price)
+            
+            # If warnings exist and the user hasn't clicked "Yes, they are correct" yet
+            if sanity_warnings and not st.session_state.get("confirmed_plausibility"):
+                with st.chat_message("assistant"):
+                    st.error("### 🛑 Wait, let's double-check these details!")
+                    for w in sanity_warnings:
+                        st.write(w)
+                    
+                    st.write("If these details are definitely correct (e.g., a salvage car or a rare find), click below to proceed.")
+                    if st.button("Yes, these details are correct"):
+                        st.session_state.confirmed_plausibility = True
+                        st.rerun()
+                st.stop() # This halts the script so the AI doesn't generate a report yet
+
+            # --- DATA IS VALIDATED ---
+            # Reset the confirmation for the NEXT search so the check runs again for new cars
+            if st.session_state.get("confirmed_plausibility"):
+                st.session_state.confirmed_plausibility = True 
+
             age = 2026 - year
             new_p = lookup_new_price(brand, model)
             
@@ -217,7 +257,7 @@ with tab2:
                         model="gpt-4o-mini",
                         messages=[{"role": "system", "content": "You are a witty, professional auto-analyst. Avoid templates. Be unique every time."},
                                   {"role": "user", "content": final_prompt}],
-                        temperature=0.85 # High creativity for variety
+                        temperature=0.6 #  Creativity for variety
                     )
                     ans = ai_resp.choices[0].message.content
 
