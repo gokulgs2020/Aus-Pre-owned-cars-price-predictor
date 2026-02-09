@@ -40,6 +40,23 @@ def parse_numeric(value):
     nums = re.findall(r"\d+", v)
     return float("".join(nums)) if nums else None
 
+def validate_data_plausibility(brand, model, year, kms, price):
+    warnings = []
+    age = max(1, 2026 - year)
+    km_per_year = kms / age
+    
+    # 1. Price Floor Check (Scam Detection)
+    if year >= 2022 and price < 8000:
+        warnings.append(f"⚠️ **Price Alert:** AU ${price:,} for a {year} model is extremely low. This is a common scam indicator.")
+    
+    # 2. Mileage Checks
+    if km_per_year > 35000:
+        warnings.append(f"🏎️ **High Usage:** This car averages {int(km_per_year):,} km/year (well above the 13k km Aus avg).")
+    if year <= 2024 and kms < 1000:
+        warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,} km on a {year} model. Verify odometer accuracy.")
+    
+    return warnings
+
 def lookup_new_price(brand, model):
     bn, mn = str(brand).lower().replace(" ", ""), str(model).lower().replace(" ", "")
     bm_copy = bm.copy()
@@ -61,11 +78,11 @@ if "vehicle_data" not in st.session_state:
 if "confirmed_plausibility" not in st.session_state: st.session_state.confirmed_plausibility = False
 
 # =====================================================
-# TAB 2 - DEAL ADVISOR
+# UI LAYOUT
 # =====================================================
 st.title("🤖 AI Deal Advisor")
 
-# 📋 LIVE DASHBOARD
+# 📋 LIVE DASHBOARD (Real-time updates)
 st.write("### 📋 Current Extraction Status")
 v = st.session_state.vehicle_data
 d1, d2, d3, d4, d5 = st.columns(5)
@@ -75,7 +92,7 @@ d3.metric("Year", v["Year"] or "-")
 d4.metric("Km", f"{v['Kilometres']:,}" if v["Kilometres"] else "-")
 d5.metric("Price", f"${v['Listed Price']:,}" if v["Listed Price"] else "-")
 
-if st.button("Reset Advisor"):
+if st.button("Reset Everything"):
     st.session_state.chat_history = []
     st.session_state.vehicle_data = {k: None for k in st.session_state.vehicle_data}
     st.session_state.confirmed_plausibility = False
@@ -86,39 +103,53 @@ for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 1. SMART EXTRACTION (Handles "oops" corrections)
-user_input = st.chat_input("Enter details or corrections...")
+# 1. SMART EXTRACTION
+user_input = st.chat_input("Enter details (e.g., 'oops 20000km')")
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     extract_prompt = f"Current Data: {st.session_state.vehicle_data}\nMessage: {user_input}\nUpdate JSON fields. Return ONLY JSON."
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "You update car data JSON. Return ONLY JSON."},
+        messages=[{"role": "system", "content": "You extract car data and handle corrections. Return ONLY JSON."},
                   {"role": "user", "content": extract_prompt}],
         temperature=0
     )
     new_data = json.loads(resp.choices[0].message.content)
     for key in st.session_state.vehicle_data:
-        if new_data.get(key): st.session_state.vehicle_data[key] = new_data[key]
+        if new_data.get(key) is not None: 
+            st.session_state.vehicle_data[key] = new_data[key]
+    
+    # If data changes, they must confirm plausibility again
     st.session_state.confirmed_plausibility = False
     st.rerun()
 
-# 2. AUTO-PROCESSOR (The 1-Word Verdict Logic)
+# 2. AUTO-PROCESSOR
 v_curr = st.session_state.vehicle_data
 required = ["Brand", "Model", "Year", "Kilometres", "Listed Price"]
-missing = [r for r in required if v_curr[r] is None]
+missing = [r for r in required if v_curr[r] is None or v_curr[r] == "-"]
 
-if not any(v_curr.values()):
-    st.info("Paste your listing details to begin. Use phrases like 'oops 20000' to correct mistakes.")
+if not any(val for val in v_curr.values() if val):
+    st.info("Paste your listing details to begin. I'll automatically check for scams and typos.")
 elif missing:
-    st.warning(f"Awaiting: {', '.join(missing)}")
+    st.warning(f"Awaiting data for: **{', '.join(missing)}**")
 else:
+    # 3. THE PLAUSIBILITY CHECK (Reintegrated)
     brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
     year, kms = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"])
     price = parse_numeric(v_curr["Listed Price"])
+    
+    warnings = validate_data_plausibility(brand, model, year, kms, price)
+    
+    if warnings and not st.session_state.confirmed_plausibility:
+        with st.chat_message("assistant"):
+            st.error("### 🛑 Wait, check these details!")
+            for w in warnings: st.write(w)
+            if st.button("Yes, these details are correct"):
+                st.session_state.confirmed_plausibility = True
+                st.rerun()
+        st.stop() # Halts AI until confirmation is clicked
 
-    # 3. VERDICT & REPORT GENERATION
-    # Check to prevent infinite loops (only respond if the last message was from user)
+    # 4. FINAL VERDICT & REPORT
     if st.session_state.chat_history and st.session_state.chat_history[-1].get("role") == "user":
         with st.chat_message("assistant"):
             new_p = lookup_new_price(brand, model)
@@ -126,6 +157,7 @@ else:
                 st.write("⚠️ Market baseline not found for this model.")
             else:
                 age = 2026 - year
+                # Predict price using your ML pipe
                 X = pd.DataFrame([{"Age": age, "log_km": np.log1p(kms), "Brand": brand, "Model": model,
                                    "FuelConsumption": 7.5, "CylindersinEngine": 4, "Seats": 5,
                                    "age_kilometer_interaction": (age * kms) / 10000, "UsedOrNew": "USED",
@@ -133,20 +165,19 @@ else:
                 pred = np.exp(pipe.predict(X)[0]) * new_p
                 gap = ((price - pred) / pred) * 100
                 
-                # --- THE 1-WORD VERDICT ---
+                # VERDICT LOGIC
                 if gap < -15: verdict, color = "VERY LOW", "red"
                 elif gap < -5: verdict, color = "BARGAIN", "green"
                 elif gap <= 5: verdict, color = "FAIR PRICED", "blue"
                 else: verdict, color = "OVER PRICED", "orange"
 
-                st.markdown(f"### Verdict: :{color}[{verdict}]")
-                st.write(f"This vehicle is listed at **{abs(gap):.1f}% {'above' if gap > 0 else 'below'}** its predicted market value of AU ${pred:,.0f}.")
-                
-                # Full AI Narrative
-                with st.spinner("Writing detailed market report..."):
+                st.markdown(f"## Verdict: :{color}[{verdict}]")
+                st.write(f"Listed at **AU ${price:,.0f}**, which is **{abs(gap):.1f}% {'above' if gap > 0 else 'below'}** predicted value.")
+
+                with st.spinner("Synthesizing market report..."):
                     report = client.chat.completions.create(
                         model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": f"Write a 3-section report for a {year} {brand} {model}. Gap: {gap:.1f}%. Verdict: {verdict}. Cite market sources."}],
+                        messages=[{"role": "user", "content": f"Analyze {year} {brand} {model}. Gap: {gap:.1f}%. Verdict: {verdict}. Cite sources."}],
                         temperature=0.7
                     ).choices[0].message.content
                     st.markdown(report)
