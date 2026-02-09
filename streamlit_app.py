@@ -81,7 +81,7 @@ def validate_data_plausibility(brand, model, year, kms, price):
     km_per_year = kms / age
     
     if year >= 2022 and price < 10000:
-        warnings.append(f"⚠️ **Price Alert:** AU \${price:,} for a {year} model is suspiciously low. Verify if this is a scam.")
+        warnings.append(f"⚠️ **Price Alert:** AU ${price:,} for a {year} model is suspiciously low. Verify if this is a scam.")
     if km_per_year > 25000:
         warnings.append(f"🏎️ **High Usage:** This {brand} has averaged {int(km_per_year):,} km/year; more than 2x the Australian avg (~13,000km/yr; Source: ABS).")
     if year <= 2024 and kms < 1500:
@@ -128,7 +128,7 @@ with tab1:
     with col2:
         models = brand_model_lookup[brand_model_lookup["Brand"] == sel_brand]["Model"].unique()
         sel_model = st.selectbox("Model", sorted(models), key="tab1_model")
-        sel_km = st.number_input("Kilometres", 0, 400000, 30000, key="tab1_km")
+        sel_km = st.number_input("Kilometres",min_value=0,max_value=400000,value=30000,step=5000,key="tab1_km")
     
     if st.button("Calculate Estimate"):
         age = 2026 - sel_year
@@ -139,7 +139,7 @@ with tab1:
                                       "age_kilometer_interaction": (age * sel_km) / 10000, "UsedOrNew": "USED",
                                       "DriveType": "FWD", "BodyType": "Sedan", "Transmission": "Automatic", "FuelType": "Gasoline"}])
             retention = np.exp(pipe.predict(X_manual)[0])
-            st.metric("Market Valuation", f"AU \${(retention * new_p):,.0f}")
+            st.metric("Market Valuation", f"AU ${(retention * new_p):,.0f}")
         else:
             st.warning("New price baseline not found for this selection.")
 
@@ -157,7 +157,7 @@ with tab2:
     d2.metric("Model", v["Model"] or "-")
     d3.metric("Year", v["Year"] or "-")
     d4.metric("Km", f"{v['Kilometres']:,}" if v["Kilometres"] else "-")
-    d5.metric("Price", f"\${v['Listed Price']:,}" if v["Listed Price"] else "-")
+    d5.metric("Price", f"${v['Listed Price']:,}" if v["Listed Price"] else "-")
 
     if st.button("Reset Advisor"):
         st.session_state.chat_history = []
@@ -239,7 +239,7 @@ with tab2:
                     m_ctx = get_market_sources_for_brand(brand)
                     
                     report_prompt = f"""
-                    Analyze this listing: {year} {brand} {model}, {kms:,}km, \${price:,.0f}.
+                    Analyze this listing: {year} {brand} {model}, {kms:,}km, ${price:,.0f}.
                     Our prediction: \${pred:,.0f} (Gap: {gap:.1f}%). 
                     Verdict: {verdict}.
 
