@@ -58,6 +58,15 @@ def parse_numeric(value):
     nums = re.findall(r"\d+", v)
     return float("".join(nums)) if nums else None
 
+def safe_json_parse(text: str):
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.split("```")[1]
+        if t.startswith("json"):
+            t = t[4:]
+    return json.loads(t.strip())
+
+
 def validate_data_plausibility(brand, model, year, kms, price):
     warnings = []
     age = max(1, 2026 - year) # Current year is 2026
