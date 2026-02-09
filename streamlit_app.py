@@ -235,21 +235,33 @@ with tab2:
         )
 
         extract_prompt = f"""
-Extract vehicle details from the text.
+Extract only the vehicle fields explicitly mentioned in the message.
+Do NOT guess missing fields.
 
-Return JSON only:
+Current known data:
+{st.session_state.vehicle_data}
+
+Message:
+{user_input}
+
+Possible fields:
+Brand, Model, Year, Kilometres, Listed Price
+
+Return JSON only in this format:
 {{
   "extracted_data": {{
-    "Brand": "",
-    "Model": "",
-    "Year": "",
-    "Kilometres": "",
-    "Listed Price": ""
+    "Brand": null,
+    "Model": null,
+    "Year": null,
+    "Kilometres": null,
+    "Listed Price": null
   }}
 }}
 
-Text:
-{user_input}
+Rules:
+- If a field is NOT mentioned, return null
+- Do NOT repeat previously known values unless re-stated
+- Do NOT include markdown
 """
 
         resp = client.chat.completions.create(
@@ -259,7 +271,12 @@ Text:
         )
 
         data = safe_json_parse(resp.choices[0].message.content)
-        st.session_state.vehicle_data.update(data["extracted_data"])
+        new_data = data("extracted_data", {})
+
+        for k, v in new_data.items():
+            if v is not None:
+                st.session_state.vehicle_data[k] = v
+
 
     for m in st.session_state.chat_history:
         with st.chat_message(m["role"]):
