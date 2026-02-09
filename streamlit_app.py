@@ -226,7 +226,7 @@ with tab2:
         st.rerun()
 
     user_input = st.chat_input(
-        "Paste listing (Brand, Model, Year, Kms, Listed price in AUD)"
+        "Paste listing details (Brand, Model, Year, Kms, Listed price in AUD)"
     )
 
     if user_input:
@@ -265,31 +265,73 @@ Text:
         with st.chat_message(m["role"]):
             st.write(m["content"])
 
+    
     # -------------------------------------------------
-    # VALIDATION
+    # PARSE, VALIDATE & SANITY-CHECK LISTING INPUT
     # -------------------------------------------------
     v = st.session_state.vehicle_data
-    brand = v.get("Brand")
-    model = v.get("Model")
-    year = parse_numeric(v.get("Year"))
-    kms = parse_numeric(v.get("Kilometres"))
-    listed_price = parse_numeric(v.get("Listed Price"))
 
-    missing = [
-        k for k, val in {
-            "Brand": brand,
-            "Model": model,
-            "Year": year,
-            "Kilometres": kms,
-            "Listed Price": listed_price
-        }.items() if not val
-    ]
+    def normalize_str(x):
+        return x.strip() if isinstance(x, str) and x.strip() else None
 
-    if missing:
+    parsed = {
+        "Brand": normalize_str(v.get("Brand")),
+        "Model": normalize_str(v.get("Model")),
+        "Year": int(parse_numeric(v.get("Year"))) if parse_numeric(v.get("Year")) is not None else None,
+        "Kilometres": int(parse_numeric(v.get("Kilometres"))) if parse_numeric(v.get("Kilometres")) is not None else None,
+        "Listed Price": int(parse_numeric(v.get("Listed Price"))) if parse_numeric(v.get("Listed Price")) is not None else None,
+    }
+
+    # -------------------------------------------------
+    # REQUIRED FIELD CHECK
+    # -------------------------------------------------
+    missing_fields = [k for k, val in parsed.items() if val is None]
+
+    if missing_fields:
         st.chat_message("assistant").write(
-            f"I still need: {', '.join(missing)}."
+            f"Please share the following details so I can evaluate the deal: {', '.join(missing_fields)}."
         )
         st.stop()
+
+    # -------------------------------------------------
+    # SANITY / PLAUSIBILITY CHECKS
+    # -------------------------------------------------
+    brand = parsed["Brand"]
+    model = parsed["Model"]
+    year = parsed["Year"]
+    kms = parsed["Kilometres"]
+    listed_price = parsed["Listed Price"]
+
+    age = datetime.now().year - year
+    sanity_warnings = []
+
+    # Unrealistically low price for recent vehicle
+    if year >= 2021 and listed_price < 10000:
+        sanity_warnings.append(
+            f"A {year} {brand} {model} listed at AU ${listed_price:,} seems unusually low."
+        )
+
+    # Very high kilometres for young vehicle (soft warning)
+    if age <= 2 and kms > 40000:
+        sanity_warnings.append(
+            f"{kms:,} km over {age} years is higher than average for a vehicle of this age."
+        )
+
+    # Negative or zero price guard
+    if listed_price <= 0:
+        sanity_warnings.append(
+            "The listed price appears invalid (zero or negative)."
+        )
+
+    if sanity_warnings:
+        st.chat_message("assistant").write(
+            "⚠️ **Quick check before I continue:**\n\n"
+            + "\n".join(f"- {msg}" for msg in sanity_warnings)
+            + "\n\nCould you please confirm or correct these details?"
+        )
+        st.stop()
+
+    #--------------------------------------------------------------------
 
     age = datetime.now().year - int(year)
     new_price = lookup_new_price(brand, model)
@@ -308,7 +350,7 @@ Text:
     market_ctx = get_market_sources_for_brand(brand)
 
     explanation_prompt = f"""
-You are advising a buyer on THIS listing.
+You are a preowned cars sales expert, advising a buyer on THIS listing.
 
 VEHICLE:
 {brand} {model}, {age} years, {kms} km
