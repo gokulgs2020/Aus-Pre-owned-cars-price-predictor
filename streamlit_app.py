@@ -216,6 +216,7 @@ else:
                 Write a 3-section report. Integrate the provided market data naturally. 
                 Adapt your tone to {brand}. Do NOT use a template.
                 Provide the response in plain conversational English. Do not use Markdown code blocks, LaTeX, or special symbols. Use standard sentence casing and spacing.
+                Always escape dollar signs with a backslash (e.g., write \$100 instead of $100) and never use LaTeX formatting.
                 """
 
                 with st.spinner("Synthesizing market report..."):
