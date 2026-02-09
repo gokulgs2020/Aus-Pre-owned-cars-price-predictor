@@ -271,7 +271,7 @@ Rules:
         )
 
         data = safe_json_parse(resp.choices[0].message.content)
-        new_data = data("extracted_data", {})
+        new_data = data.get("extracted_data", {})
 
         for k, v in new_data.items():
             if v is not None:
@@ -350,7 +350,6 @@ Rules:
 
     #--------------------------------------------------------------------
 
-    age = datetime.now().year - int(year)
     new_price = lookup_new_price(brand, model)
 
     if np.isnan(new_price):
