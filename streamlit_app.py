@@ -15,7 +15,6 @@ from typing import List
 # =====================================================
 st.set_page_config(page_title="AI Car Deal Advisor", layout="wide")
 
-# Use st.secrets for Streamlit Cloud or .env for local
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     st.error("Missing OPENAI_API_KEY. Please set the environment variable.")
@@ -69,7 +68,6 @@ def get_market_sources_for_brand(brand: str):
 def parse_numeric(value):
     if value in [None, "null", "-", "None"]: return None
     if isinstance(value, (int, float)): return float(value)
-    # Support decimals and remove common car-related characters
     v = str(value).lower().replace("kms", "").replace("km", "").replace(",", "").replace("$", "").strip()
     nums = re.findall(r"\d+\.?\d*", v)
     return float(nums[0]) if nums else None
@@ -89,33 +87,20 @@ def validate_data_plausibility(brand, model, year, kms, price):
     current_year = 2026
     age = max(1, current_year - year)
     km_per_year = kms / age
-    
     if year >= 2022 and price < 10000:
         warnings.append(f"⚠️ **Price Alert:** AU ${price:,.0f} for a {year} model is suspiciously low.")
     if km_per_year > 35000:
-        warnings.append(f"🏎️ **High Usage:** Averaging {int(km_per_year):,} km/year. (AU average is ~13,000km).")
-    if year <= 2024 and kms < 500:
-        warnings.append(f"🔍 **Low Odometer:** Only {kms:,} km on a {year} model. Verify if this is a demo or error.")
+        warnings.append(f"🏎️ **High Usage:** Averaging {int(km_per_year):,} km/year.")
     return warnings
 
 def lookup_new_price(brand, model):
     if bm is None or b is None: return np.nan
     bn, mn = str(brand).lower().replace(" ", ""), str(model).lower().replace(" ", "")
-    
-    # 1. Try Brand + Model match
-    bm_match = bm[
-        (bm['Brand'].str.lower().str.replace(" ", "") == bn) & 
-        (bm['Model'].str.lower().str.replace(" ", "").str.contains(mn))
-    ]
-    if not bm_match.empty: 
-        return float(bm_match.iloc[0]["New_Price_bm"])
-    
-    # 2. Fallback to Brand Average
+    bm_match = bm[(bm['Brand'].str.lower().str.replace(" ", "") == bn) & 
+                  (bm['Model'].str.lower().str.replace(" ", "").str.contains(mn))]
+    if not bm_match.empty: return float(bm_match.iloc[0]["New_Price_bm"])
     b_match = b[b['Brand'].str.lower().str.replace(" ", "") == bn]
-    if not b_match.empty:
-        return float(b_match.iloc[0]["New_Price_b"])
-    
-    return np.nan
+    return float(b_match.iloc[0]["New_Price_b"]) if not b_match.empty else np.nan
 
 # =====================================================
 # 3. CRITIC AGENT
@@ -129,17 +114,14 @@ def run_critic_audit(ml_data, ai_draft_text):
     - Gap: {ml_data['gap']:.1f}% ({ml_data['verdict']})
     
     AUDIT RULES:
-    1. If numbers in the DRAFT differ from FACTS, you MUST fail it.
-    2. Every single dollar sign ($) MUST be escaped with a backslash (\$).
-    3. Ensure exactly three sections separated by '---'.
+    1. If numbers in the DRAFT differ from FACTS, you MUST fail it (is_factual=false).
+    2. Provide the corrected narrative or specific numeric fix in 'suggested_fix'.
+    3. Every dollar sign ($) in the narrative MUST be escaped like \\$.
     """
-    
     completion = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": critic_system_prompt},
-            {"role": "user", "content": ai_draft_text}
-        ],
+        messages=[{"role": "system", "content": critic_system_prompt},
+                  {"role": "user", "content": ai_draft_text}],
         response_format=AuditReport,
     )
     return completion.choices[0].message.parsed
@@ -154,23 +136,16 @@ if "confirmed_plausibility" not in st.session_state: st.session_state.confirmed_
 
 st.title("🚗 AI Car Deal Advisor (Australia)")
 
-# Sidebar for current status
 with st.sidebar:
     st.write("### 📋 Extracted Details")
-    v = st.session_state.vehicle_data
-    st.info(f"**Brand:** {v['Brand'] or '-'}\n\n"
-            f"**Model:** {v['Model'] or '-'}\n\n"
-            f"**Year:** {v['Year'] or '-'}\n\n"
-            f"**Km:** {f'{parse_numeric(v['Kilometres']):,.0f}' if v['Kilometres'] else '-'}\n\n"
-            f"**Price:** {f'${parse_numeric(v['Listed Price']):,.0f}' if v['Listed Price'] else '-'}")
-    
+    vd = st.session_state.vehicle_data
+    st.info(f"**Brand:** {vd['Brand'] or '-'}\n\n**Model:** {vd['Model'] or '-'}\n\n**Year:** {vd['Year'] or '-'}")
     if st.button("Clear & Reset"):
         st.session_state.chat_history = []
         st.session_state.vehicle_data = {k: None for k in st.session_state.vehicle_data}
         st.session_state.confirmed_plausibility = False
         st.rerun()
 
-# Display Chat History
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -178,91 +153,96 @@ for msg in st.session_state.chat_history:
 # =====================================================
 # 5. EXECUTION LOGIC
 # =====================================================
-user_input = st.chat_input("Paste a CarSales link or type car details (e.g. 2022 Toyota Corolla 40k km $25000)")
+user_input = st.chat_input("Enter car details...")
 
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
     
-    # Data Extraction
-    with st.spinner("Extracting vehicle details..."):
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "Extract/Update car data. Keys: Brand, Model, Year, Kilometres, Listed Price. Return ONLY JSON."},
-                      {"role": "user", "content": f"Current: {st.session_state.vehicle_data}\nInput: {user_input}"}],
-            temperature=0
-        )
-        new_data = safe_json_parse(resp.choices[0].message.content)
-        for key in st.session_state.vehicle_data:
-            if new_data.get(key) is not None: 
-                st.session_state.vehicle_data[key] = new_data[key]
-        
-    st.session_state.confirmed_plausibility = False # Reset on new info
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "system", "content": "Extract car data to JSON. Return ONLY JSON."},
+                  {"role": "user", "content": f"Current: {st.session_state.vehicle_data}\nInput: {user_input}"}],
+        temperature=0
+    )
+    new_data = safe_json_parse(resp.choices[0].message.content)
+    for key in st.session_state.vehicle_data:
+        if new_data.get(key) is not None: 
+            st.session_state.vehicle_data[key] = new_data[key]
+    st.session_state.confirmed_plausibility = False
     st.rerun()
 
-# Evaluation Logic
 v_curr = st.session_state.vehicle_data
 required_fields = ["Brand", "Model", "Year", "Kilometres", "Listed Price"]
 missing = [f for f in required_fields if v_curr[f] is None]
 
 if not any(v_curr.values()):
-    st.info("👋 Welcome! Please paste a car listing to begin analysis.")
+    st.info("👋 Please enter car details to start.")
 elif missing:
-    st.warning(f"I'm still missing: **{', '.join(missing)}**. Please provide these details.")
+    st.warning(f"Missing: {', '.join(missing)}")
 else:
     brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
-    year = parse_numeric(v_curr["Year"])
-    kms = parse_numeric(v_curr["Kilometres"])
-    price = parse_numeric(v_curr["Listed Price"])
+    year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
     
-    # Plausibility Guardrail
     warnings = validate_data_plausibility(brand, model, year, kms, price)
     if warnings and not st.session_state.confirmed_plausibility:
         with st.chat_message("assistant"):
-            st.error("### 🛑 Please Verify Data")
+            st.error("### 🛑 Verify Data")
             for w in warnings: st.write(w)
-            if st.checkbox("These details are correct, proceed with analysis"):
+            if st.checkbox("Details are correct"):
                 st.session_state.confirmed_plausibility = True
                 st.rerun()
         st.stop()
 
-    # Analysis Generation
+    # --- THE PRICE ESTIMATOR LOGIC (Restored) ---
+    new_p = lookup_new_price(brand, model)
+    if np.isnan(new_p):
+        st.error("Baseline price not found for this model.")
+    else:
+        age = 2026 - year
+        # Basic interactive features for the ML model
+        X = pd.DataFrame([{
+            "Age": age, "log_km": np.log1p(kms), "Brand": brand, "Model": model,
+            "FuelConsumption": 8.0, "CylindersinEngine": 4, "Seats": 5,
+            "age_kilometer_interaction": (age * kms) / 10000, "UsedOrNew": "USED",
+            "DriveType": "AWD" if "kluger" in model.lower() else "FWD", 
+            "BodyType": "SUV" if "kluger" in model.lower() else "Sedan",
+            "Transmission": "Automatic", "FuelType": "Gasoline"
+        }])
+        
+        pred = np.exp(pipe.predict(X)[0]) * new_p
+        gap = ((price - pred) / pred) * 100
+        verdict = "OVERPRICED" if gap > 7 else "BARGAIN" if gap < -7 else "FAIR PRICE"
 
-    with st.spinner("🔍 Performing Critic Audit..."):
-        # 1. Get the initial narrative
-        raw_report = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "You are a professional Australian automotive valuations expert."},
-                    {"role": "user", "content": report_prompt}],
-            temperature=0.7
-        ).choices[0].message.content
-        
-        # 2. Run Audit
-        ml_data = {"price": price, "pred": pred, "gap": round(gap, 1), "verdict": verdict}
-        audit = run_critic_audit(ml_data, raw_report)
-        
-        # 3. Handle the output logic
-        if not audit.is_factual:
-            # If the audit finds an error, we ask the model to regenerate the FULL report
-            # using the 'suggested_fix' as the grounding guide.
-            correction_prompt = f"Original Draft: {raw_report}\n\nCorrection Needed: {audit.suggested_fix}\n\nRewrite the FULL 3-section report with these corrections. Keep the '---' separators."
-            final_report = client.chat.completions.create(
+        # --- REPORT GENERATION & CRITIC ---
+        with st.spinner("🔍 Analysing Market..."):
+            m_ctx = get_market_sources_for_brand(brand)
+            report_prompt = f"Analyze {year} {brand} {model}, {kms}km, ${price}. Predicted: ${pred:.2f} (Gap: {gap:.1f}%). Market Context: {m_ctx}. Use 3 sections separated by '---'."
+            
+            raw_report = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "user", "content": correction_prompt}]
+                messages=[{"role": "system", "content": "You are an Australian car expert."},
+                          {"role": "user", "content": report_prompt}]
             ).choices[0].message.content
-        else:
-            final_report = raw_report
-        
-        # 4. Clean and Split for UI
-        # We strip extra whitespace to ensure the split works even if the LLM adds newlines
-        sections = [s.strip() for s in final_report.split("---") if s.strip()]
-        labels = ["📢 Verdict Summary", "💡 Brand & Model Insights", "📉 Resale & Market Outlook"]
-        
-        for i, section in enumerate(sections):
-            if i < len(labels):
-                st.markdown(f"### {labels[i]}")
-                # Replace escaped \$ with real $ for final display in st.write
-                st.write(section.replace(r"\$", "$"))
-        
-        st.session_state.chat_history.append({"role": "assistant", "content": final_report})
+
+            ml_data = {"price": price, "pred": pred, "gap": gap, "verdict": verdict}
+            audit = run_critic_audit(ml_data, raw_report)
+
+            # If audit fails, force a rewrite with correct facts
+            if not audit.is_factual:
+                correction_prompt = f"Rewrite this report. FACTS: Predicted Price ${pred:,.2f}, Gap {gap:.1f}%. Report: {raw_report}"
+                final_report = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": correction_prompt}]
+                ).choices[0].message.content
+            else:
+                final_report = raw_report
+
+            # Display
+            sections = [s.strip() for s in final_report.split("---") if s.strip()]
+            labels = ["📢 Verdict Summary", "💡 Brand Insights", "📉 Market Outlook"]
+            for i, section in enumerate(sections):
+                if i < len(labels):
+                    st.markdown(f"### {labels[i]}")
+                    st.write(section.replace(r"\$", "$"))
