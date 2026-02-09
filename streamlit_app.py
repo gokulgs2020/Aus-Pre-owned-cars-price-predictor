@@ -104,7 +104,7 @@ def validate_data_plausibility(brand, model, year, kms, price):
     if year >= 2022 and price < 8000:
         warnings.append(f"⚠️ **Price Alert:** AU ${price:,} for a {year} vehicle is significantly below market value. Check for scams.")
     if km_per_year > 25000:
-        warnings.append(f"🏎️ **High Usage:** This car averages {int(km_per_year):,} km/year (2x Aus avg).")
+        warnings.append(f"🏎️ **High Usage:** This car averages {int(km_per_year):,} km/year (more than 2x Aus annual avg usage).")
     if year <= 2024 and kms < 1000:
         warnings.append(f"🔍 **Low Kms:** Only {kms:,} km on a {year} model. Verify odometer.")
     return warnings
