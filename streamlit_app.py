@@ -49,7 +49,6 @@ def safe_json_parse(text: str):
 
 @st.cache_resource
 def load_artifacts():
-    # Placeholder for your specific paths
     pipe = joblib.load("models/final_price_pipe.joblib")
     bm = pd.read_csv("models/new_price_lookup_bm.csv")
     b = pd.read_csv("models/new_price_lookup_b.csv")
@@ -113,54 +112,49 @@ with tab1:
     col1, col2 = st.columns(2)
     with col1:
         sel_brand = st.selectbox("Brand", sorted(brand_model_lookup["Brand"].unique()))
-        sel_year = st.number_input("Year", 2000, 2025, 2020)
+        sel_year = st.number_input("Year", 2000, 2026, 2022)
     with col2:
         models = brand_model_lookup[brand_model_lookup["Brand"] == sel_brand]["Model"].unique()
         sel_model = st.selectbox("Model", sorted(models))
-        sel_km = st.number_input("Kilometres", 0, 300000, 50000)
+        sel_km = st.number_input("Kilometres", 0, 400000, 30000)
 
     if st.button("Calculate Estimate"):
-        age = 2025 - sel_year
+        age = 2026 - sel_year
         new_p = lookup_new_price(sel_brand, sel_model)
         if np.isnan(new_p):
-            st.warning("New price data unavailable for this selection.")
+            st.warning("New price data unavailable.")
         else:
-            # Feature building logic (simplified for snippet)
             X = pd.DataFrame([{"Age": age, "log_km": np.log1p(sel_km), "Brand": sel_brand, "Model": sel_model,
                                "FuelConsumption": 7.5, "CylindersinEngine": 4, "Seats": 5,
                                "age_kilometer_interaction": (age * sel_km) / 10000, "UsedOrNew": "USED",
                                "DriveType": "FWD", "BodyType": "Sedan", "Transmission": "Automatic", "FuelType": "Gasoline"}])
             retention = np.exp(pipe.predict(X)[0])
             est_p = retention * new_p
-            st.metric("Estimated Market Value", f"AU ${est_p:,.0f}", f"{retention*100:.1f}% Retention")
+            st.metric("Market Valuation", f"AU ${est_p:,.0f}", f"{retention*100:.1f}% Retention")
 
 with tab2:
     st.header("AI Deal Advisor")
-    st.info("Paste a car listing description below. I'll analyze the price, brand reputation, and market trends.")
     
     if st.button("Clear Chat"):
         st.session_state.chat_history = []
         st.session_state.vehicle_data = {}
         st.rerun()
 
-    # Display Chat
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Ex: 2019 Toyota Corolla, 45000km, $22000")
+    user_input = st.chat_input("Paste listing details here...")
 
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        # 1. Extraction Step
-        extract_prompt = f"Extract Brand, Model, Year, Kilometres, and Listed Price from: '{user_input}'. Return JSON only."
+        extract_prompt = f"Extract car details from: '{user_input}'. Return JSON: {{'Brand': str, 'Model': str, 'Year': int, 'Kilometres': int, 'Listed Price': int}}"
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "You are a data extractor. Return JSON: {Brand, Model, Year, Kilometres, Listed Price}"},
-                      {"role": "user", "content": extract_prompt}],
+            messages=[{"role": "system", "content": "Extract only facts. Return JSON."}, {"role": "user", "content": extract_prompt}],
             temperature=0
         )
         
@@ -169,26 +163,23 @@ with tab2:
             if v: st.session_state.vehicle_data[k] = v
         
         v_data = st.session_state.vehicle_data
-        
-        # 2. Validation
         required = ["Brand", "Model", "Year", "Kilometres", "Listed Price"]
         missing = [r for r in required if r not in v_data or v_data[r] is None]
         
         if missing:
-            msg = f"I've noted the details, but I still need: **{', '.join(missing)}** to give you a full analysis."
+            msg = f"Almost there! I still need: **{', '.join(missing)}**."
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             with st.chat_message("assistant"): st.write(msg)
         else:
-            # 3. Calculation & Strategy
             brand, model = v_data["Brand"], v_data["Model"]
             year, kms = parse_numeric(v_data["Year"]), parse_numeric(v_data["Kilometres"])
             price = parse_numeric(v_data["Listed Price"])
             
-            age = 2025 - year
+            age = 2026 - year
             new_p = lookup_new_price(brand, model)
             
             if np.isnan(new_p):
-                ans = "I couldn't find historical pricing for this specific model to run a deep analysis."
+                ans = "I lack enough data to run a full analysis for this specific model."
             else:
                 X_adv = pd.DataFrame([{"Age": age, "log_km": np.log1p(kms), "Brand": brand, "Model": model,
                                        "FuelConsumption": 7.5, "CylindersinEngine": 4, "Seats": 5,
@@ -198,38 +189,35 @@ with tab2:
                 gap = ((price - pred_p) / pred_p) * 100
                 m_ctx = get_market_sources_for_brand(brand)
 
-                # DYNAMIC PROMPT LOGIC
-                luxury_brands = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover']
-                persona = "Luxury Specialist" if brand.lower() in luxury_brands else "Value Analyst"
+                # DYNAMIC ANALYTIC LOGIC
+                deal_type = "suspiciously low" if gap < -15 else "strong bargain" if gap < -5 else "market fair" if gap < 5 else "premium listing"
+                luxury = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover']
+                persona = "Luxury Portfolio Advisor" if brand.lower() in luxury else "Consumer Value Specialist"
 
                 final_prompt = f"""
-                You are a {persona} for the Australian car market. 
-                Analyze this listing: {year} {brand} {model}, {kms}km, Listed: AU ${price:,.0f}.
-                Our Model Predicts: AU ${pred_p:,.0f} (Gap: {gap:+.1f}%).
+                Persona: {persona} (Australia)
+                Vehicle: {year} {brand} {model}, {kms:,}km.
+                Pricing: Listed AU ${price:,.0f} vs Predicted AU ${pred_p:,.0f} ({gap:+.1f}% variance).
+                Deal Context: This is a {deal_type} listing.
 
-                MARKET DATA:
-                - Resale: {m_ctx['resale']}
-                - Reliability: {m_ctx['reliability']}
-                - Maintenance: {m_ctx['maintenance']}
+                MARKET DATA SOURCES:
+                {m_ctx}
 
                 TASK:
-                Write a 3-part summary. 
-                1. 'Value Assessment': Discuss the {gap:+.1f}% price gap. Is it a deal or a rip-off?
-                2. 'Brand Intelligence': Use the MARKET DATA to explain how {brand}'s reputation affects this car's future. 
-                   YOU MUST CITE SOURCES (e.g., Source: RedBook).
-                3. 'Buyer's Playbook': Give 2 specific pieces of advice for inspecting/negotiating this specific car.
-
-                STRICT RULES:
-                - Do NOT use a generic template. 
-                - Use {brand}-specific terminology (e.g., "build quality" for luxury, "running costs" for budget).
-                - Keep it punchy and avoid repeating the same phrases.
+                Write a 3-section evaluation.
+                - DO NOT use a standard intro like 'For this car...'. 
+                - Adapt your vocabulary: for a {brand}, focus on its specific segment (e.g., 'reliability' for Toyota, 'prestige' for BMW).
+                - Section 1: 'The Price Narrative'. Interpret the {gap:+.1f}% gap. If it's a {deal_type} deal, tell the buyer what to be wary of or why it's a win.
+                - Section 2: 'Segment Insights'. Integrate the MARKET DATA naturally. Cite sources (e.g. Source: RedBook) inline.
+                - Section 3: 'Your Move'. Provide 2 non-generic negotiation or inspection tips specific to this {brand} {model}.
                 """
 
-                with st.spinner("Analyzing market data..."):
+                with st.spinner("Analyzing Listing..."):
                     ai_resp = client.chat.completions.create(
                         model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": final_prompt}],
-                        temperature=0.7 # Higher temperature for variety
+                        messages=[{"role": "system", "content": "You are a witty, professional auto-analyst. Avoid templates. Be unique every time."},
+                                  {"role": "user", "content": final_prompt}],
+                        temperature=0.85 # High creativity for variety
                     )
                     ans = ai_resp.choices[0].message.content
 
