@@ -51,7 +51,7 @@ def validate_data_plausibility(brand, model, year, kms, price):
     
     # 2. Mileage Checks
     if km_per_year > 35000:
-        warnings.append(f"🏎️ **High Usage:** This car averages {int(km_per_year):,} km/year (well above the 13k km Aus avg).")
+        warnings.append(f"🏎️ **High Usage:** This car averages {int(km_per_year):,} km/year (well above the 13k km Aus avg). Source : abs.gov.au")
     if year <= 2024 and kms < 1000:
         warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,} km on a {year} model. Verify odometer accuracy.")
     
