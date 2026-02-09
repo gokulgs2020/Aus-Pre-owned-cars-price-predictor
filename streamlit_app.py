@@ -416,7 +416,7 @@ Rules:
     OUTPUT FORMAT (MANDATORY)
 
     ### 💰 Does this listed price make sense?
-    - For this {brand} {model} with {age} years and {kms} km, the seller’s listed price of AU ${int(listed_price)} is above or below the model-predicted price of AU ${int(pred_price)}, which is derived from brand, model, mileage, and typical retention.
+    - For this {brand} {model} with {age} years and {kms} km, the seller’s listed price of AU ${int(listed_price)} is above or below the our predicted price of AU ${int(pred_price)}, which is derived from past data on brand, model, mileage and manufacturing year to calculate typical resale value.
     - The price gap of {gap_pct}% suggests the vehicle is fairly priced, slightly overpriced, or significantly overpriced relative to current market expectations.
 
     ### 📊 How the listed price compares
@@ -425,7 +425,7 @@ Rules:
     - Maintenance and reliability expectations for this model are considered favourable, average, or mixed, which influences buyer demand and resale confidence. Source: <insert source name>.
 
     ### 🧭 What you should do next
-    - If negotiating, use the model-predicted price of AU ${int(pred_price)} as a reference point, supported by depreciation and resale trends. Source: <insert source name or “No specific source available”>.
+    - If negotiating, use the model-predicted price of AU ${int(pred_price)} as a reference point, supported by depreciation and resale trends.
     - If you are specifically seeking a {brand} {model}, consider whether paying a premium is justified by condition, service history, and availability in the market.
 
     """
