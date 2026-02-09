@@ -156,14 +156,14 @@ The LLM is used for **reasoning over facts**, not generating facts.
 ## 🗂️ Repository Structure
 
 .
-├── streamlit_app.py
-├── models/
-│ ├── final_price_pipe.joblib
-│ ├── new_price_lookup_bm.csv
-│ ├── new_price_lookup_b.csv
-├── data/
-│ └── market_sources.json
-├── README.md
+├── streamlit_app.py <br>
+├── models/ <br>
+│ ├── final_price_pipe.joblib <br>
+│ ├── new_price_lookup_bm.csv <br>
+│ ├── new_price_lookup_b.csv <br>
+├── data/ <br>
+│ └── market_sources.json <br>
+├── README.md <br>
 
 ## ▶️ How to Run Locally
 
@@ -177,11 +177,11 @@ streamlit run streamlit_app.py
 
 This project demonstrates:
 
--Responsible, production-style use of Generative AI
--Clear separation of ML prediction and LLM reasoning
--Explicit hallucination controls
--Thoughtful conversational UX for high-trust decisions
--It is designed not as a demo chatbot, but as a realistic decision-support system.
+- Responsible, production-style use of Generative AI
+- Clear separation of ML prediction and LLM reasoning
+- Explicit hallucination controls
+- Thoughtful conversational UX for high-trust decisions
+- It is designed not as a demo chatbot, but as a realistic decision-support system
 
 ## 📄 Disclaimer
 
@@ -191,7 +191,7 @@ It does not provide financial or legal advice.
 
 ## Future Improvements
 
--Brand/model-level embedding search over market sources
--Confidence scoring on explanations
--Region-specific pricing adjustments
--Automated source refresh with human review
+- Brand/model-level embedding search over market sources
+- Confidence scoring on explanations
+- Region-specific pricing adjustments
+- Automated source refresh with human review
