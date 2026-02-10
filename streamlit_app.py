@@ -201,16 +201,42 @@ with tab2:
         kms = parse_numeric(st.session_state.vehicle_data["Kilometres"])
         price = parse_numeric(st.session_state.vehicle_data["Listed Price"])
         
-        # 3. PLAUSIBILITY CHECK
+        # 3. TEMPORAL & PLAUSIBILITY CHECK
+        brand, model = str(st.session_state.vehicle_data["Brand"]), str(st.session_state.vehicle_data["Model"])
+        year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
+
+        # --- TEMPORAL GUARDRAIL ---
+        # Catch future years immediately to prevent illogical 'Usage' calculations
+        CURRENT_YEAR = 2026 
+        if year and year > CURRENT_YEAR:
+            with st.chat_message("assistant"):
+                st.error(f"📅 **Year Error:** You entered **{year}**, but the current year is **{CURRENT_YEAR}**.")
+                st.write("I can't calculate a valuation for a vehicle from the future! Please provide a valid model year.")
+                if st.button("Edit Year"):
+                    st.session_state.vehicle_data["Year"] = None
+                    st.session_state.trigger_analysis = False
+                    st.rerun()
+            st.stop() # Halt execution so nonsensical 'High Usage' warnings aren't shown
+
+        # --- PLAUSIBILITY CHECK ---
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
                 st.warning("### 🛑 Check Details")
                 for w in warnings: 
                     st.write(f"- {w}")
-                if st.button("Yes, these are correct"):
-                    st.session_state.confirmed_plausibility = True
-                    st.rerun()
+                
+                col_y, col_n = st.columns(2)
+                with col_y:
+                    if st.button("Yes, these are correct", use_container_width=True):
+                        st.session_state.confirmed_plausibility = True
+                        st.rerun()
+                with col_n:
+                    if st.button("No, let me fix them", use_container_width=True):
+                        # Resetting relevant fields for user to try again
+                        st.session_state.vehicle_data["Year"] = None
+                        st.session_state.trigger_analysis = False
+                        st.rerun()
             st.stop()
 
         # 4. PRICING & FINAL REPORT
