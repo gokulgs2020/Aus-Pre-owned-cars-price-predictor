@@ -3,27 +3,31 @@
 SYSTEM_EXTRACTOR = "You are a car data assistant. Update the JSON based on the user's message. Return ONLY JSON."
 
 def get_extraction_prompt(current_data, user_input):
-    # Identify what we are still searching for to prime the LLM
+    # Identify what we are still searching for to notify the LLM
     missing_fields = [k for k, v in current_data.items() if v is None]
     
     return f"""
     TODAY'S YEAR: 2026. 
     Current Vehicle Data: {current_data}
-    User Follow-up Message: "{user_input}"
+    User Message: "{user_input}"
     
     INSTRUCTIONS:
     1. Update the vehicle JSON based on the user's message.
-    2. ENTITY RESOLUTION FOR NUMBERS:
-       If the user provides a single number without a label:
+    2. DISAMBIGUATION RULES:
+       - If the user provides TWO numbers that could both realistically be 'Kilometres' or 'Listed Price' 
+         (e.g., "20000 30000") and NO labels are provided (like "km" or "$"), do NOT guess.
+       - Instead, set both fields to null and add a key "ambiguity": "numeric_collision" to the JSON.
+    3. ENTITY RESOLUTION FOR SINGLE NUMBERS:
+       If only ONE unlabeled number is provided:
        - If 'Kilometres' is missing and the number is > 1000, assign it to 'Kilometres'.
        - If 'Year' is missing and the number is between 2000 and 2026, assign it to 'Year'.
-       - If 'Listed Price' is missing and if it is > 5000), assign it to 'Listed Price'.
-    3. AGE CALCULATION: If '4 years old' is mentioned, set 'Year' to {2026 - 4}.
-    4. MODEL CANONICALIZATION: If user mentions 'crv', ensure you map it to the most likely model string (e.g., 'CR-V').
+       - If 'Listed Price' is missing and it's a realistic car price, assign it to 'Listed Price'.
+    4. AGE CALCULATION: If 'X years old' is mentioned, set 'Year' to {2026} - X.
+    5. MODEL CANONICALIZATION: Map variants (e.g., 'crv', 'v-cruiser') to their official names in the {current_data['Brand']} lineup.
 
     TARGET FIELDS TO FILL: {missing_fields}
     
-    Return ONLY a JSON object containing the updated fields.
+    Return ONLY a JSON object.
     """
 
 SYSTEM_ANALYST = "You are a professional Australian market auto-analyst. Use only the provided market data sources."
