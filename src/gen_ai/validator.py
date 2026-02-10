@@ -1,5 +1,7 @@
 # validator.py
 import re
+import pandas as pd
+import difflib
 
 def parse_numeric(value):
     if value in [None, "null", "-", "None"]: return None
@@ -29,55 +31,58 @@ def validate_data_plausibility(brand, model, year, kms, price):
         warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,.0f} km on a {year} model. Please verify the odometer.")
     return warnings
 
-import pandas as pd
+
 
 def validate_model_existence(brand, model, brand_model_lookup):
     """
-    Checks if model exists and resolves to canonical name. 
-    Handles case-insensitivity and special characters (e.g., 'Santa FE' or 'CR-V').
+    Checks if model exists. Resolves exact matches and fuzzy matches 
+    (e.g., 'santa' -> 'Santa Fe').
     """
     if not model:
         return False, {"status": "missing", "message": "Model is required"}
     
+    # 1. Clean basic noise
     if len(str(model)) < 2 or not any(c.isalpha() for c in str(model)):
         return False, {"status": "rubbish", "message": f"'{model}' isn't a valid name"}
 
-    # Helper: Remove non-alphanumeric characters and lowercase
     def normalize(text):
         return "".join(char for char in str(text).lower() if char.isalnum())
 
     user_model_norm = normalize(model)
     user_brand_norm = normalize(brand) if brand else ""
 
-    # Check for matches
-    # Optimization: Instead of copying the whole DF, we filter first
-    # This handles "Santa FE" -> "santafe" matching "Santa Fe" -> "santafe"
-    
-    # Pre-calculate normalized columns for comparison
+    # Pre-calculate normalized columns
     temp_df = brand_model_lookup.copy()
     temp_df['norm_model'] = temp_df['Model'].apply(normalize)
     temp_df['norm_brand'] = temp_df['Brand'].apply(normalize)
 
-    # Search for model matches
+    # 2. Try Exact Match First
     model_matches = temp_df[temp_df['norm_model'] == user_model_norm]
 
-    if not model_matches.empty:
-        # Check if the brand matches too
-        brand_match = model_matches[model_matches['norm_brand'] == user_brand_norm]
+    # 3. Fuzzy Match Fallback (Handles 'santa' -> 'santafe' or 'corola' -> 'corolla')
+    if model_matches.empty:
+        all_models = temp_df['norm_model'].unique()
+        # n=1 gets the top match, cutoff=0.6 is the similarity threshold
+        closest_names = difflib.get_close_matches(user_model_norm, all_models, n=1, cutoff=0.5)
         
-        if not brand_match.empty:
-            # Perfect Match (ignoring case/spaces)
-            return True, {
-                "brand": brand_match.iloc[0]['Brand'], 
-                "model": brand_match.iloc[0]['Model'], 
-                "status": "valid"
-            }
+        if closest_names:
+            model_matches = temp_df[temp_df['norm_model'] == closest_names[0]]
         else:
-            # Model exists but under a different brand (e.g., user said 'Toyota Santa Fe')
-            return True, {
-                "brand": model_matches.iloc[0]['Brand'], 
-                "model": model_matches.iloc[0]['Model'], 
-                "status": "corrected"
-            }
+            return False, {"status": "not_in_db", "message": f"Unsupported Model: '{model}'"}
+
+    # 4. Final Brand Resolution
+    brand_match = model_matches[model_matches['norm_brand'] == user_brand_norm]
     
-    return False, {"status": "not_in_db", "message": f"Unsupported Model: '{model}'"}
+    if not brand_match.empty:
+        return True, {
+            "brand": brand_match.iloc[0]['Brand'], 
+            "model": brand_match.iloc[0]['Model'], 
+            "status": "valid"
+        }
+    else:
+        # Corrected: Found the model, but assigning the correct canonical brand
+        return True, {
+            "brand": model_matches.iloc[0]['Brand'], 
+            "model": model_matches.iloc[0]['Model'], 
+            "status": "corrected"
+        }
