@@ -141,7 +141,6 @@ with tab2:
 
     # 5. THE ANALYST ENGINE
     if all(v_curr.values()) and st.session_state.trigger_analysis:
-        # Cross-validate Brand/Model (Resolves 'RDSF Kluger' -> 'Toyota Kluger')
         is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         
         if not is_valid:
@@ -150,13 +149,14 @@ with tab2:
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
                     st.rerun()
-            st.stop()
+            st.stop() # CRITICAL: Stop here so we don't hit the KeyError
         else:
-            # Result is now a dict: {"brand": "Toyota", "model": "Kluger", "status": "corrected"}
+            # result is guaranteed to be a dict here
             st.session_state.vehicle_data["Brand"] = result["brand"]
             st.session_state.vehicle_data["Model"] = result["model"]
+            
             if result["status"] == "corrected":
-                st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
+                st.toast(f"🤖 Auto-corrected Brand to {result['brand']}", icon="✅")
 
         brand, model = str(st.session_state.vehicle_data["Brand"]), str(st.session_state.vehicle_data["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
