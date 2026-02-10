@@ -105,31 +105,47 @@ with tab2:
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             st.rerun()
         
-        # --- EXTRACTION WITH HEURISTIC FALLBACK ---
+        # --- EXTRACTION WITH LABEL-AWARE HEURISTIC & DISAMBIGUATION ---
         with st.spinner("Updating details..."):
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
             
-            # Catch Numeric Ambiguity (Disambiguation Logic)
+            # 1. Regex to count all numbers in user input
+            import re
+            numbers_in_input = re.findall(r'\d+', user_input.replace(",", ""))
+            
+            # 2. Catch Numeric Ambiguity (If 2+ numbers exist but AI isn't certain)
             if raw_json and raw_json.get("ambiguity") == "numeric_collision":
-                msg = "I see two numbers here. Could you clarify which one is the **Price** and which is the **Kilometres**?"
-                st.session_state.chat_history.append({"role": "assistant", "content": msg})
-                st.rerun()
+                with st.chat_message("assistant"):
+                    msg = "I see multiple numbers here. Could you clarify which one is the **Price** and which is the **Kilometres**?"
+                    st.warning(msg)
+                    st.session_state.chat_history.append({"role": "assistant", "content": msg})
+                st.stop() # Wait for explicit user clarification
 
-            # Senior Heuristic: If LLM failed to extract a lone numeric follow-up, map it manually
-            if is_numeric_followup and raw_json:
+            # 3. Heuristic Fallback (triggers if exactly one number is found)
+            # This prevents the "taking the first digit" error when multiple numbers are present
+            if len(numbers_in_input) == 1 and is_numeric_followup and raw_json:
                 val = int(clean_input)
+                # Map based on empty slots
                 if v_curr["Kilometres"] is None and val > 1000: raw_json["Kilometres"] = val
                 elif v_curr["Year"] is None and 1990 <= val <= 2026: raw_json["Year"] = val
                 elif v_curr["Listed Price"] is None: raw_json["Listed Price"] = val
 
+            # 4. State Update with Strict Sanitization (takes '-30000' as 30000)
             if raw_json:
                 for key in st.session_state.vehicle_data:
                     if raw_json.get(key) is not None: 
                         val = raw_json[key]
-                        if key in ["Year", "Kilometres", "Listed Price"] and val is not None:
-                            try: val = int(str(val).replace(",", "").replace("$", ""))
-                            except: pass
+                        
+                        # Process numeric fields specifically
+                        if key in ["Year", "Kilometres", "Listed Price"]:
+                            try:
+                                # Strip everything except digits to handle signs, symbols, and ranges
+                                clean_val = "".join(filter(str.isdigit, str(val)))
+                                val = int(clean_val) if clean_val else None
+                            except (ValueError, TypeError):
+                                pass
+                                
                         st.session_state.vehicle_data[key] = val
         
         st.session_state.trigger_analysis = True 
