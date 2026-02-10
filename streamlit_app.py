@@ -174,7 +174,7 @@ with tab2:
     user_input = st.chat_input("Enter details (e.g., '2022 Toyota Corolla 30000km $25000')")
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
-        extract_prompt = f"Current Data: {st.session_state.vehicle_data}\nMessage: {user_input}\nUpdate JSON. Return ONLY JSON."
+        extract_prompt = f"Current Data: {st.session_state.vehicle_data}\nMessage: {user_input}\nUpdate JSON. If the user mentions age (e.g., '4 years old'), calculate the Year by subtracting that from 2026. Return ONLY JSON."
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": "You are a car data assistant. Update the JSON based on the user's message. Return ONLY JSON."},
