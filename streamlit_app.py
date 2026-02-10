@@ -65,7 +65,7 @@ with tab2:
     st.header("AI Deal Advisor")
     v = st.session_state.vehicle_data
     
-    # 1. UI METRICS (Always visible)
+    # 1. UI METRICS (Current State)
     d1, d2, d3, d4, d5 = st.columns(5)
     d1.metric("Brand", v["Brand"] or "-")
     d2.metric("Model", v["Model"] or "-")
@@ -84,21 +84,17 @@ with tab2:
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    # 3. CHAT INPUT & SMART GUARDRAILS
+    # 3. CHAT INPUT & GUARDRAILS
     user_input = st.chat_input("Enter details (e.g., '2022 Toyota Corolla 30k km $25000')")
     
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         
-        # --- SMART GUARDRAIL ---
         v_curr = st.session_state.vehicle_data
         missing = [k for k, val in v_curr.items() if val is None]
-        
         clean_input = user_input.strip().replace(",", "").replace("$", "")
         car_keywords = ['toyota', 'honda', 'mazda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'kluger', 'crv', 'cr-v', 'rav4']
         is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 2)
-        
-        # Allow numeric follow-ups if price, kms, or year are missing
         is_numeric_followup = clean_input.isdigit() and any(k in missing for k in ['Kilometres', 'Listed Price', 'Year'])
 
         if not (is_relevant or is_numeric_followup):
@@ -106,53 +102,41 @@ with tab2:
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             st.rerun()
         
-        # --- EXTRACTION WITH LABEL-AWARE HEURISTIC & DISAMBIGUATION ---
         with st.spinner("Updating details..."):
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
             
-            # 1. Regex to count all numbers in user input
             import re
             numbers_in_input = re.findall(r'\d+', user_input.replace(",", ""))
             
-            # 2. Catch Numeric Ambiguity (If 2+ numbers exist but AI isn't certain)
             if raw_json and raw_json.get("ambiguity") == "numeric_collision":
                 with st.chat_message("assistant"):
                     msg = "I see multiple numbers here. Could you clarify which one is the **Price** and which is the **Kilometres**?"
                     st.warning(msg)
                     st.session_state.chat_history.append({"role": "assistant", "content": msg})
-                st.stop() # Wait for explicit user clarification
+                st.stop()
 
-            # 3. Heuristic Fallback (triggers if exactly one number is found)
-            # This prevents the "taking the first digit" error when multiple numbers are present
             if len(numbers_in_input) == 1 and is_numeric_followup and raw_json:
                 val = int(clean_input)
-                # Map based on empty slots
                 if v_curr["Kilometres"] is None and val > 1000: raw_json["Kilometres"] = val
                 elif v_curr["Year"] is None and 1990 <= val <= 2026: raw_json["Year"] = val
                 elif v_curr["Listed Price"] is None: raw_json["Listed Price"] = val
 
-            # 4. State Update with Strict Sanitization (takes '-30000' as 30000)
             if raw_json:
                 for key in st.session_state.vehicle_data:
                     if raw_json.get(key) is not None: 
                         val = raw_json[key]
-                        
-                        # Process numeric fields specifically
                         if key in ["Year", "Kilometres", "Listed Price"]:
                             try:
-                                # Strip everything except digits to handle signs, symbols, and ranges
                                 clean_val = "".join(filter(str.isdigit, str(val)))
                                 val = int(clean_val) if clean_val else None
-                            except (ValueError, TypeError):
-                                pass
-                                
+                            except: pass
                         st.session_state.vehicle_data[key] = val
         
         st.session_state.trigger_analysis = True 
         st.rerun()
 
-    # 4. DATA VALIDATION & MISSING INFO PROMPT
+    # 4. MISSING INFO PROMPT
     v_curr = st.session_state.vehicle_data
     missing = [k for k, val in v_curr.items() if val is None]
 
@@ -168,13 +152,7 @@ with tab2:
     # 5. THE ANALYST ENGINE
     # =====================================================
     if all(v_curr.values()) and st.session_state.trigger_analysis:
-        # 1. VALIDATION & FUZZY RESOLUTION
-        # This handles "santa" -> "Santa Fe" or typos like "Corola" -> "Corolla"
-        is_valid, result = validate_model_existence(
-            v_curr["Brand"], 
-            v_curr["Model"], 
-            brand_model_lookup
-        )
+        is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         
         if not is_valid:
             with st.chat_message("assistant"):
@@ -185,48 +163,31 @@ with tab2:
                     st.rerun()
             st.stop()
         else:
-            # CRITICAL: Sync session state with canonical names
-            # If result['model'] is "Santa Fe", we update it here
             st.session_state.vehicle_data["Brand"] = result["brand"]
             st.session_state.vehicle_data["Model"] = result["model"]
-            
-            # Show toast if we fixed a typo or resolved a partial name
             if result["status"] in ["corrected", "valid"] and result["model"] != v_curr["Model"]:
                 st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
 
-        # 2. DATA PREPARATION
-        # Re-pull from session_state to ensure we use the cleaned/canonical versions
-        brand = str(st.session_state.vehicle_data["Brand"])
-        model = str(st.session_state.vehicle_data["Model"])
-        year = parse_numeric(st.session_state.vehicle_data["Year"])
-        kms = parse_numeric(st.session_state.vehicle_data["Kilometres"])
-        price = parse_numeric(st.session_state.vehicle_data["Listed Price"])
-        
-        # 3. TEMPORAL & PLAUSIBILITY CHECK
-        brand, model = str(st.session_state.vehicle_data["Brand"]), str(st.session_state.vehicle_data["Model"])
-        year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
+        year = parse_numeric(v_curr["Year"])
+        kms = parse_numeric(v_curr["Kilometres"])
+        price = parse_numeric(v_curr["Listed Price"])
+        brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
 
-        # --- TEMPORAL GUARDRAIL ---
-        # Catch future years immediately to prevent illogical 'Usage' calculations
-        CURRENT_YEAR = 2026 
-        if year and year > CURRENT_YEAR:
+        # TEMPORAL GUARDRAIL
+        if year and year > 2026:
             with st.chat_message("assistant"):
-                st.error(f"📅 **Year Error:** You entered **{year}**, but the current year is **{CURRENT_YEAR}**.")
-                st.write("I can't calculate a valuation for a vehicle from the future! Please provide a valid model year.")
+                st.error(f"📅 **Year Error:** You entered **{year}**, but the current year is **2026**.")
                 if st.button("Edit Year"):
                     st.session_state.vehicle_data["Year"] = None
-                    st.session_state.trigger_analysis = False
                     st.rerun()
-            st.stop() # Halt execution so nonsensical 'High Usage' warnings aren't shown
+            st.stop()
 
-        # --- PLAUSIBILITY CHECK ---
+        # PLAUSIBILITY CHECK
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
                 st.warning("### 🛑 Check Details")
-                for w in warnings: 
-                    st.write(f"- {w}")
-                
+                for w in warnings: st.write(f"- {w}")
                 col_y, col_n = st.columns(2)
                 with col_y:
                     if st.button("Yes, these are correct", use_container_width=True):
@@ -234,66 +195,62 @@ with tab2:
                         st.rerun()
                 with col_n:
                     if st.button("No, let me fix them", use_container_width=True):
-                        # Resetting relevant fields for user to try again
                         st.session_state.vehicle_data["Year"] = None
-                        st.session_state.trigger_analysis = False
                         st.rerun()
             st.stop()
 
-        # 4. PRICING & FINAL REPORT
+        # 4. FINAL REPORT & CRITIC
         with st.chat_message("assistant"):
             st.session_state.trigger_analysis = False 
-            
-            # Baseline price lookup
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
-                st.warning(f"⚠️ Baseline market price not found for {brand} {model}.")
+                st.warning(f"⚠️ Market price not found for {brand} {model}.")
             else:
                 with st.spinner(f"Analyzing {brand} {model} Market..."):
-                    # ML Math Logic
                     retention = calculate_market_prediction(pipe, brand, model, year, kms)
                     pred = retention * new_p
                     gap = ((price - pred) / pred) * 100 if price else 0
                     
-                    # Verdict Logic
                     verdict, color = ("FAIR PRICED", "blue")
                     if gap < -15: verdict, color = "VERY LOW!", "orange"
                     elif gap < -5: verdict, color = "BARGAIN", "green"
                     elif gap > 5: verdict, color = "OVER PRICED!", "orange"
 
-                    # 1. GENERATE INITIAL REPORT
+                    # 1. Generate Report
                     m_ctx = get_market_sources_for_brand(brand)
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
 
-                # 2. RUN CRITIC AGENT (The Auditor)
+                # 2. Run Auditor
                 with st.spinner("🕵️ Fact-checking AI response..."):
-                    audit = call_critic_agent(
-                        client, 
-                        st.session_state.vehicle_data, 
-                        pred, 
-                        gap, 
-                        report
-                    )
+                    audit = call_critic_agent(client, st.session_state.vehicle_data, pred, gap, report)
 
-                # 3. DISPLAY RESULTS & METRICS
+                # 3. UI DISPLAY
                 st.markdown(f"### Verdict: :{color}[{verdict}]")
-                
-                # Evaluation Metrics UI
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Faithfulness", f"{audit['hallucination_score']*100:.0f}%")
-                m2.metric("Data Recall", f"{audit['recall_score']*100:.0f}%")
-                m3.metric("Logic Check", "✅ Pass" if audit['verdict_consistent'] else "❌ Fail")
-
-                if audit['hallucination_score'] < 0.8:
-                    st.warning(f"⚠️ **Note:** Potential inconsistencies detected: {', '.join(audit['found_hallucinations'])}")
-
-                st.markdown("---")
                 st.markdown(report)
                 
-                # Persistence
+                # --- GREYED OUT AUDIT FOOTER ---
+                st.markdown("---")
+                st.markdown('<p style="color: grey; font-size: 14px; font-weight: bold;">🤖 AI AUDIT METRICS (STRICTNESS: HIGH)</p>', unsafe_allow_html=True)
+                
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    st.markdown(f'<p style="color: grey; margin-bottom: 0;">Faithfulness</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: grey; font-size: 24px;">{audit["hallucination_score"]*100:.0f}%</p>', unsafe_allow_html=True)
+                with m2:
+                    st.markdown(f'<p style="color: grey; margin-bottom: 0;">Data Recall</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: grey; font-size: 24px;">{audit["recall_score"]*100:.0f}%</p>', unsafe_allow_html=True)
+                with m3:
+                    logic_col = "green" if audit['verdict_consistent'] else "red"
+                    st.markdown(f'<p style="color: grey; margin-bottom: 0;">Logic Consistency</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: {logic_col}; font-size: 24px;">{"PASS" if audit["verdict_consistent"] else "FAIL"}</p>', unsafe_allow_html=True)
+
+                if audit['hallucination_score'] < 0.8:
+                    st.caption(f"⚠️ Audit Note: {', '.join(audit['found_hallucinations'])}")
+                
+                # Update history
                 st.session_state.chat_history.append({
                     "role": "assistant", 
-                    "content": f"**Verdict: {verdict}** (Faithfulness: {audit['hallucination_score']*100:.0f}%)\n\n{report}"
+                    "content": f"**Verdict: {verdict}**\n\n{report}"
                 })
