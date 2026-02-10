@@ -129,16 +129,29 @@ with tab2:
 
     # 5. THE ANALYST ENGINE (Runs only when data is complete)
     if all(v_curr.values()) and st.session_state.trigger_analysis:
-        # Validate the model name specifically
-        is_valid, reason = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
+        # 1. Capture the boolean AND the resolved name (canonical_name)
+        is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
+        
         if not is_valid:
             with st.chat_message("assistant"):
-                st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
+                # Use the reason (result) to give better feedback
+                if result == "rubbish":
+                    st.error(f"⚠️ I couldn't understand the model: '{v_curr['Model']}'")
+                else:
+                    st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
+                
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
+                    st.session_state.trigger_analysis = False
                     st.rerun()
             st.stop()
-
+        else:
+            # 2. SUCCESS: Update state with the official name from the database
+            # This ensures 'crv' becomes 'CR-V' before hitting the ML pipe
+            st.session_state.vehicle_data["Model"] = result
+            # We refresh the local variable to use the clean name immediately
+            model = result
+            
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
