@@ -24,6 +24,7 @@ def get_extraction_prompt(current_data, user_input):
        - If 'Listed Price' is missing and it's a realistic car price, assign it to 'Listed Price'.
     4. AGE CALCULATION: If 'X years old' is mentioned, set 'Year' to {2026} - X.
     5. MODEL CANONICALIZATION: Map variants (e.g., 'crv', 'v-cruiser') to their official names in the {current_data['Brand']} lineup.
+    6. If the user provides a year > 2026, set 'Year' to null and add "error": "future_year"
 
     TARGET FIELDS TO FILL: {missing_fields}
     
