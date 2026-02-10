@@ -28,7 +28,7 @@ Predicted price alone does not answer:
 - What factors matter for *this specific brand & model*?
 - What are the *industry standard parameters* to be considered for a fair evaluation?
 
-This is where an LLM layer translates numeric outputs into contextual, grounded reasoning —
+This is where an LLM layer translates numeric outputs into contextual, grounded reasoning
 without being allowed to invent facts.
 
 
