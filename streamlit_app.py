@@ -44,7 +44,7 @@ pipe, bm, b, brand_model_lookup = load_artifacts()
 
 @st.cache_resource
 def load_market_sources():
-    with open("data/market_sources.json", "r", encoding="utf-8") as f:
+    with open("data/curated_market_sources.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 MARKET_SOURCES = load_market_sources()
@@ -100,6 +100,22 @@ def lookup_new_price(brand, model):
     b_copy['bn'] = b_copy['Brand'].str.lower().str.replace(" ", "")
     match_b = b_copy[b_copy['bn'] == bn]
     return float(match_b.iloc[0]["New_Price_b"]) if not match_b.empty else np.nan
+
+def validate_model_existence(brand, model):
+    """Checks if the brand/model combo exists in our training database."""
+    if not brand or not model:
+        return False, "missing"
+    
+    # 1. Rubbish Check (Input too short or lacks letters)
+    if len(str(model)) < 2 or not any(c.isalpha() for c in str(model)):
+        return False, "rubbish"
+        
+    # 2. Database Lookup
+    valid_models = brand_model_lookup[brand_model_lookup["Brand"] == brand]["Model"].unique()
+    if model not in valid_models:
+        return False, "not_in_db"
+    
+    return True, "valid"
 
 # =====================================================
 # SESSION STATE
@@ -188,15 +204,31 @@ with tab2:
         st.session_state.confirmed_plausibility = False
         st.rerun()
 
-    # 2. AUTO-PROCESSOR
+    # 2. VALIDATION & AUTO-PROCESSOR
     v_curr = st.session_state.vehicle_data
     required = ["Brand", "Model", "Year", "Kilometres", "Listed Price"]
     missing = [r for r in required if v_curr[r] is None or v_curr[r] == "-"]
+
+    # Database & Rubbish Validation Gate
+    is_valid, reason = validate_model_existence(v_curr["Brand"], v_curr["Model"])
 
     if not any(val for val in v_curr.values() if val):
         st.info("Paste your car listing details below to start.")
     elif missing:
         st.warning(f"I'm still missing: **{', '.join(missing)}**")
+    
+    # Handle Rubbish/Unsupported Models explicitly
+    elif not is_valid:
+        with st.chat_message("assistant"):
+            if reason == "rubbish":
+                st.error(f"⚠️ **Please clarify the model name.** '{v_curr['Model']}' does not look like a real vehicle model.")
+            elif reason == "not_in_db":
+                st.warning(f"❌ **Unsupported Model:** We have data for {v_curr['Brand']}, but '{v_curr['Model']}' is not in our database. We are unable to support this model.")
+            
+            if st.button("Clear Model & Try Again"):
+                st.session_state.vehicle_data["Model"] = None
+                st.rerun()
+        st.stop()
     else:
         # 3. PLAUSIBILITY CHECK
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
