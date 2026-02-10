@@ -167,8 +167,8 @@ with tab2:
     # 5. THE ANALYST ENGINE
     # =====================================================
     if all(v_curr.values()) and st.session_state.trigger_analysis:
-        # 1. VALIDATION & NORMALIZATION
-        # Handles noisy input like "@##@RDSF" or casing issues like "santa FE"
+        # 1. VALIDATION & FUZZY RESOLUTION
+        # This handles "santa" -> "Santa Fe" or typos like "Corola" -> "Corolla"
         is_valid, result = validate_model_existence(
             v_curr["Brand"], 
             v_curr["Model"], 
@@ -180,28 +180,28 @@ with tab2:
                 st.error(f"### ❌ {result.get('message', 'Unsupported Model')}")
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
-                    st.session_state.trigger_analysis = False # Reset trigger to allow re-entry
+                    st.session_state.trigger_analysis = False
                     st.rerun()
             st.stop()
         else:
-            # Update Session State with canonical/cleaned names (e.g., 'santa FE' -> 'Santa Fe')
+            # CRITICAL: Sync session state with canonical names
+            # If result['model'] is "Santa Fe", we update it here
             st.session_state.vehicle_data["Brand"] = result["brand"]
             st.session_state.vehicle_data["Model"] = result["model"]
             
-            # UI Feedback for corrections
-            if result["status"] in ["corrected", "normalized"]:
+            # Show toast if we fixed a typo or resolved a partial name
+            if result["status"] in ["corrected", "valid"] and result["model"] != v_curr["Model"]:
                 st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
 
         # 2. DATA PREPARATION
-        # Ensure numeric types for ML pipeline and logic
+        # Re-pull from session_state to ensure we use the cleaned/canonical versions
         brand = str(st.session_state.vehicle_data["Brand"])
         model = str(st.session_state.vehicle_data["Model"])
-        year = parse_numeric(v_curr["Year"])
-        kms = parse_numeric(v_curr["Kilometres"])
-        price = parse_numeric(v_curr["Listed Price"])
+        year = parse_numeric(st.session_state.vehicle_data["Year"])
+        kms = parse_numeric(st.session_state.vehicle_data["Kilometres"])
+        price = parse_numeric(st.session_state.vehicle_data["Listed Price"])
         
-        # 3. PLAUSIBILITY CHECK (Safety Logic)
-        # Checks for outliers (e.g., a car with 1,000,000 km or year 2099)
+        # 3. PLAUSIBILITY CHECK
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
@@ -215,37 +215,34 @@ with tab2:
 
         # 4. PRICING & FINAL REPORT
         with st.chat_message("assistant"):
-            # Reset triggers so analysis doesn't loop infinitely on next rerun
             st.session_state.trigger_analysis = False 
             
-            # Look up baseline price from artifacts
+            # baseline price lookup
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
                 st.warning(f"⚠️ Baseline market price not found for {brand} {model}.")
             else:
-                # Calculate Market Prediction using ML Pipeline
-                retention = calculate_market_prediction(pipe, brand, model, year, kms)
-                pred = retention * new_p
-                gap = ((price - pred) / pred) * 100 if price else 0
-                
-                # Categorize the Deal
-                verdict, color = ("FAIR PRICED", "blue")
-                if gap < -15: verdict, color = "VERY LOW!", "orange"
-                elif gap < -5: verdict, color = "BARGAIN", "green"
-                elif gap > 5: verdict, color = "OVER PRICED!", "orange"
+                with st.spinner(f"Analyzing {brand} {model} Market..."):
+                    retention = calculate_market_prediction(pipe, brand, model, year, kms)
+                    pred = retention * new_p
+                    gap = ((price - pred) / pred) * 100 if price else 0
+                    
+                    # Verdict Logic
+                    verdict, color = ("FAIR PRICED", "blue")
+                    if gap < -15: verdict, color = "VERY LOW!", "orange"
+                    elif gap < -5: verdict, color = "BARGAIN", "green"
+                    elif gap > 5: verdict, color = "OVER PRICED!", "orange"
 
-                st.markdown(f"### Verdict: :{color}[{verdict}]")
-                
-                # Generate AI Context & Report
-                m_ctx = get_market_sources_for_brand(brand)
-                rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
-                
-                with st.spinner("Analyzing Market Data..."):
+                    st.markdown(f"### Verdict: :{color}[{verdict}]")
+                    
+                    m_ctx = get_market_sources_for_brand(brand)
+                    rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
+                    
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
                     st.markdown(report)
                     
-                    # Persistence: Add to history for the chat display
+                    # Persistence
                     st.session_state.chat_history.append({
                         "role": "assistant", 
                         "content": f"**Verdict: {verdict}**\n\n{report}"
