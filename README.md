@@ -85,7 +85,7 @@ Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakag
 
 ---
 
-## 🧩 High-Level Architecture
+## 🧩 System Flow & High-Level Architecture
 
 ```mermaid
 graph TD
@@ -110,7 +110,7 @@ graph TD
 The system is structured into four layers:
 
 ### 1️⃣ ML Pricing Layer (Deterministic)
-- Trained regression model
+- Trained LightGBM model
 - Inputs: age, mileage (log-transformed), brand, model, interactions
 - Output: predicted price via implied retention × new price proxy
 - **No GenAI involvement**
