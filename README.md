@@ -32,7 +32,7 @@ This is where an LLM layer translates numeric outputs into contextual, grounded 
 without being allowed to invent facts.
 
 
-# 1. Deal Advisor (Gen AI Powered)
+# 1. Gen AI Powered Interactive Deal Advisor
 
 ## 🧠 Approach
 
@@ -184,7 +184,7 @@ It does not provide financial or legal advice.
 - Region-specific pricing adjustments
 - Automated source refresh with human review
 
-# 2. Price Estimator (ML Based)
+# 2. Pricing Foundation (ML based predictor)
 
 Estimate the **retained price (New price - Depreciation)** per Brand/Model as a function of kilometres, age and vehicle attributes 
 
