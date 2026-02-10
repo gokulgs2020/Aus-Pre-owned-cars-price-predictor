@@ -30,30 +30,51 @@ def validate_data_plausibility(brand, model, year, kms, price):
     return warnings
 
 def validate_model_existence(brand, model, brand_model_lookup):
-    """Checks if the brand/model combo exists and resolves to canonical name."""
-    if not brand or not model:
-        return False, "missing"
+    """
+    Checks if model exists and resolves to canonical name. 
+    If brand is noisy or wrong, it attempts to infer the correct brand from the model.
+    """
+    # 1. Base missing check
+    if not model:
+        return False, {"status": "missing", "message": "Model is required"}
     
-    # 1. Rubbish Check
+    # 2. Rubbish Check
     if len(str(model)) < 2 or not any(c.isalpha() for c in str(model)):
-        return False, "rubbish"
+        return False, {"status": "rubbish", "message": f"'{model}' doesn't look like a valid model name"}
 
-    # Helper to normalize strings: lowercase + remove non-alphanumeric
     def normalize(text):
         return "".join(char for char in str(text).lower() if char.isalnum())
 
     user_model_norm = normalize(model)
+    user_brand_norm = normalize(brand) if brand else ""
+
+    # 3. GLOBAL SEARCH (Broadening the scope)
+    # Optimization: In production, we pre-calculate these normalized columns
+    lookup_copy = brand_model_lookup.copy()
+    lookup_copy['norm_model'] = lookup_copy['Model'].apply(normalize)
+    lookup_copy['norm_brand'] = lookup_copy['Brand'].apply(normalize)
+
+    # Search for the model anywhere in the Australian database
+    matches = lookup_copy[lookup_copy['norm_model'] == user_model_norm]
+
+    if not matches.empty:
+        # Check if any match also aligns with the provided brand
+        brand_match = matches[matches['norm_brand'] == user_brand_norm]
+        
+        if not brand_match.empty:
+            # Case 1: Perfect match found
+            return True, {
+                "brand": brand_match.iloc[0]['Brand'], 
+                "model": brand_match.iloc[0]['Model'], 
+                "status": "valid"
+            }
+        else:
+            # Case 2: Model found but brand is different (Auto-correction)
+            return True, {
+                "brand": matches.iloc[0]['Brand'], 
+                "model": matches.iloc[0]['Model'], 
+                "status": "corrected"
+            }
     
-    # 2. Database Lookup with Normalization
-    # Filter for the correct brand first (case-insensitive)
-    brand_mask = brand_model_lookup["Brand"].str.lower() == brand.lower()
-    valid_models = brand_model_lookup[brand_mask]["Model"].unique()
-    
-    # Compare normalized versions
-    for canonical_m in valid_models:
-        if normalize(canonical_m) == user_model_norm:
-            # RETURN TRUE + THE CANONICAL NAME 
-            # (e.g., if user gave 'CRV', this returns 'CR-V')
-            return True, canonical_m
-    
-    return False, "not_in_db"
+    # 4. Fallback if no model match is found at all
+    return False, {"status": "not_in_db", "message": f"Unsupported Model: '{model}'"}
