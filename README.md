@@ -106,6 +106,7 @@ graph TD
         E
     end
 
+```
 The system is structured into four layers:
 
 ### 1️⃣ ML Pricing Layer (Deterministic)
