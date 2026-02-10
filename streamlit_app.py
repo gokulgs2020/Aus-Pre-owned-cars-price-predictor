@@ -9,6 +9,7 @@ from src.gen_ai.model_utils import load_artifacts, lookup_new_price, calculate_m
 from src.gen_ai.validator import parse_numeric, validate_data_plausibility, validate_model_existence
 from src.gen_ai.prompts import SYSTEM_EXTRACTOR, SYSTEM_ANALYST, get_extraction_prompt, get_report_prompt
 from src.gen_ai.extractor import call_llm_extractor, safe_json_parse
+from src.gen_ai.critic import call_critic_agent
 
 # =====================================================
 # CONFIG & CLIENT
@@ -243,13 +244,14 @@ with tab2:
         with st.chat_message("assistant"):
             st.session_state.trigger_analysis = False 
             
-            # baseline price lookup
+            # Baseline price lookup
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
                 st.warning(f"⚠️ Baseline market price not found for {brand} {model}.")
             else:
                 with st.spinner(f"Analyzing {brand} {model} Market..."):
+                    # ML Math Logic
                     retention = calculate_market_prediction(pipe, brand, model, year, kms)
                     pred = retention * new_p
                     gap = ((price - pred) / pred) * 100 if price else 0
@@ -260,16 +262,38 @@ with tab2:
                     elif gap < -5: verdict, color = "BARGAIN", "green"
                     elif gap > 5: verdict, color = "OVER PRICED!", "orange"
 
-                    st.markdown(f"### Verdict: :{color}[{verdict}]")
-                    
+                    # 1. GENERATE INITIAL REPORT
                     m_ctx = get_market_sources_for_brand(brand)
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
-                    
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
-                    st.markdown(report)
-                    
-                    # Persistence
-                    st.session_state.chat_history.append({
-                        "role": "assistant", 
-                        "content": f"**Verdict: {verdict}**\n\n{report}"
-                    })
+
+                # 2. RUN CRITIC AGENT (The Auditor)
+                with st.spinner("🕵️ Fact-checking AI response..."):
+                    audit = call_critic_agent(
+                        client, 
+                        st.session_state.vehicle_data, 
+                        pred, 
+                        gap, 
+                        report
+                    )
+
+                # 3. DISPLAY RESULTS & METRICS
+                st.markdown(f"### Verdict: :{color}[{verdict}]")
+                
+                # Evaluation Metrics UI
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Faithfulness", f"{audit['hallucination_score']*100:.0f}%")
+                m2.metric("Data Recall", f"{audit['recall_score']*100:.0f}%")
+                m3.metric("Logic Check", "✅ Pass" if audit['verdict_consistent'] else "❌ Fail")
+
+                if audit['hallucination_score'] < 0.8:
+                    st.warning(f"⚠️ **Note:** Potential inconsistencies detected: {', '.join(audit['found_hallucinations'])}")
+
+                st.markdown("---")
+                st.markdown(report)
+                
+                # Persistence
+                st.session_state.chat_history.append({
+                    "role": "assistant", 
+                    "content": f"**Verdict: {verdict}** (Faithfulness: {audit['hallucination_score']*100:.0f}%)\n\n{report}"
+                })
