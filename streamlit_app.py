@@ -85,22 +85,32 @@ with tab2:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
     # 3. INPUT PROCESSING
+    # 3. CHAT INPUT & SMART GUARDRAILS
     user_input = st.chat_input("Enter details (e.g., '2022 Toyota Corolla 30k km $25000')")
     
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         
-        # --- GUARDRAIL: IRRELEVANT INPUT ---
-        car_keywords = ['toyota', 'mazda', 'honda', 'km', 'price', '$', '20', 'model', 'car', 'valuation', 'kluger']
-        is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 3)
+        # --- SMART GUARDRAIL ---
+        v_curr = st.session_state.vehicle_data
+        missing = [k for k, val in v_curr.items() if val is None]
+        
+        # Allow input if it contains car keywords OR if it's a number and we are missing numeric fields
+        car_keywords = ['toyota', 'honda', 'mazda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'kluger', 'crv', 'cr-v']
+        is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 2)
+        
+        # New: If the user provides just a number (like '40000') and we are missing KMs or Price, let it pass
+        is_numeric_followup = user_input.strip().isdigit() and ('Kilometres' in missing or 'Listed Price' in missing)
 
-        if not is_relevant:
-            msg = "I can assist with used car price evaluation! Please enter a valid Brand, Model, Year and KMs."
+        if not (is_relevant or is_numeric_followup):
+            msg = "I can assist with used car price evaluation only! Please enter a valid Brand, Model, Year and KMs."
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             st.rerun()
         
         # --- EXTRACTION ---
-        with st.spinner("Extracting details..."):
+        with st.spinner("Updating details..."):
+            # The LLM Extractor is great at taking "40000" and knowing it belongs in KMs 
+            # because we pass the current vehicle_data context to it.
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
             if raw_json:
@@ -151,7 +161,7 @@ with tab2:
             st.session_state.vehicle_data["Model"] = result
             # We refresh the local variable to use the clean name immediately
             model = result
-            
+
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
