@@ -143,6 +143,7 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 
 ## 🗂️ Repository Structure
 
+```
 .
 ├── streamlit_app.py <br>
 ├── models/ <br>
@@ -152,6 +153,8 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 ├── data/ <br>
 │ └── curated_market_sources.json <br>
 ├── README.md <br>
+
+```
 
 ## ▶️ How to Run Locally
 
