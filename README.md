@@ -58,13 +58,15 @@ pip install -r requirements.txt
 
 Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakage.
 
-**Cross-validation results (Price prediction):**
-- **MAE:** ~ A$2.5K–A$4K  
-- **RMSE:** ~ A$5K–A$15K  
-- **MAPE:** ~ 8%-14%  
-- **R²:** ~ 0.7-0.8  
+**Cross-validation results (Price prediction):** 
+- **MAPE:** ~ 24%  
+- **R²:** ~ 0.64  
 
-✅ The model's **R²** between 0.7-0.8 indicates robust and generalized prediction for pre-owned cars.
+✅ The model's **R²** indicates a baseline performance for a marketplace with noise due to
+- Vehicle Condition: Scratches, interior wear and tear
+- Service History: A full logbook vs. no records
+- Modifications: Aftermarket wheels, bull bars, or tinted windows
+- Geography: A car in Sydney might sell differently than one in Perth
 
 ## 📸 Screenshots
 
@@ -85,6 +87,7 @@ Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakag
 
 ## 🧩 High-Level Architecture
 
+```mermaid
 graph TD
     A[User Natural Language Input] --> B[GenAI Extraction Layer]
     B -->|Structured JSON| C{Validation Gate}
@@ -93,14 +96,14 @@ graph TD
     E -->|Price Retention %| F[Numeric Valuation]
     F --> G[GenAI Synthesis Layer]
     G -->|Contextual Market Report| H[Final Deal Advisor Output]
-    
+
     subgraph "Generative AI Extension"
-    B
-    G
+        B
+        G
     end
-    
+
     subgraph "Core ML Logic"
-    E
+        E
     end
 
 The system is structured into four layers:
