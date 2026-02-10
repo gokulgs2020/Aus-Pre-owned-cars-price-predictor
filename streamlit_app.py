@@ -32,7 +32,6 @@ if "vehicle_data" not in st.session_state:
     st.session_state.vehicle_data = {"Brand": None, "Model": None, "Year": None, "Kilometres": None, "Listed Price": None}
 if "confirmed_plausibility" not in st.session_state: 
     st.session_state.confirmed_plausibility = False
-# This flag ensures the report generates immediately after valid extraction
 if "trigger_analysis" not in st.session_state:
     st.session_state.trigger_analysis = False
 
@@ -74,10 +73,10 @@ with tab2:
     d5.metric("Price", f"${v['Listed Price']:,}" if v["Listed Price"] else "-")
 
     if st.button("Reset Advisor"):
-        for key in ["chat_history", "vehicle_data", "confirmed_plausibility", "trigger_analysis"]:
-            if key == "vehicle_data": st.session_state[key] = {k: None for k in v}
-            elif key == "chat_history": st.session_state[key] = []
-            else: st.session_state[key] = False
+        st.session_state.chat_history = []
+        st.session_state.vehicle_data = {k: None for k in v}
+        st.session_state.confirmed_plausibility = False
+        st.session_state.trigger_analysis = False
         st.rerun()
 
     # 2. CHAT DISPLAY
@@ -94,12 +93,9 @@ with tab2:
         v_curr = st.session_state.vehicle_data
         missing = [k for k, val in v_curr.items() if val is None]
         
-        # Expanded keywords to be more inclusive of Australian models
+        clean_input = user_input.strip().replace(",", "").replace("$", "")
         car_keywords = ['toyota', 'honda', 'mazda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'kluger', 'crv', 'cr-v', 'rav4']
         is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 2)
-        
-        # Check if the input is a single numeric follow-up for missing fields
-        clean_input = user_input.strip().replace(",", "").replace("$", "")
         is_numeric_followup = clean_input.isdigit() and any(k in missing for k in ['Kilometres', 'Listed Price', 'Year'])
 
         if not (is_relevant or is_numeric_followup):
@@ -112,73 +108,57 @@ with tab2:
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
             
-            # SENIOR FIX: If LLM failed to extract a numeric follow-up, handle it deterministically
+            # Map lone numbers if LLM missed it
             if is_numeric_followup and raw_json:
                 val = int(clean_input)
-                # Map the lone number to the first available numeric 'None' slot
-                if v_curr["Kilometres"] is None and val > 1000:
-                    raw_json["Kilometres"] = val
-                elif v_curr["Year"] is None and 1990 <= val <= 2026:
-                    raw_json["Year"] = val
-                elif v_curr["Listed Price"] is None:
-                    raw_json["Listed Price"] = val
+                if v_curr["Kilometres"] is None and val > 1000: raw_json["Kilometres"] = val
+                elif v_curr["Year"] is None and 1990 <= val <= 2026: raw_json["Year"] = val
+                elif v_curr["Listed Price"] is None: raw_json["Listed Price"] = val
 
-            # Update the Global Session State
             if raw_json:
                 for key in st.session_state.vehicle_data:
                     if raw_json.get(key) is not None: 
-                        # Cast to int where appropriate for ML pipeline compatibility
-                        value = raw_json[key]
-                        if key in ["Year", "Kilometres", "Listed Price"] and value is not None:
-                            try: value = int(str(value).replace(",", "").replace("$", ""))
+                        val = raw_json[key]
+                        if key in ["Year", "Kilometres", "Listed Price"] and val is not None:
+                            try: val = int(str(val).replace(",", "").replace("$", ""))
                             except: pass
-                        st.session_state.vehicle_data[key] = value
+                        st.session_state.vehicle_data[key] = val
         
         st.session_state.trigger_analysis = True 
         st.rerun()
 
-    # 4. DATA VALIDATION & PROMPT FOR MISSING INFO
+    # 4. DATA VALIDATION & PROMPT FOR MISSING
     v_curr = st.session_state.vehicle_data
-    
-    # Identify what is missing
     missing = [k for k, val in v_curr.items() if val is None]
-    
-    # If something is missing and the user just typed something
+
     if missing and st.session_state.trigger_analysis:
         st.session_state.trigger_analysis = False
         with st.chat_message("assistant"):
-            missing_str = ", ".join(missing)
-            prompt_msg = f"I've got some details, but I'm still missing the **{missing_str}**. Could you please provide those?"
-            st.info(prompt_msg)
-            st.session_state.chat_history.append({"role": "assistant", "content": prompt_msg})
+            msg = f"I'm still missing: **{', '.join(missing)}**. Could you provide those?"
+            st.info(msg)
+            st.session_state.chat_history.append({"role": "assistant", "content": msg})
         st.stop()
 
-    # 5. THE ANALYST ENGINE (Runs only when data is complete)
+    # 5. THE ANALYST ENGINE
     if all(v_curr.values()) and st.session_state.trigger_analysis:
-        # 1. Capture the boolean AND the resolved name (canonical_name)
+        # Cross-validate Brand/Model (Resolves 'RDSF Kluger' -> 'Toyota Kluger')
         is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         
         if not is_valid:
             with st.chat_message("assistant"):
-                # Use the reason (result) to give better feedback
-                if result == "rubbish":
-                    st.error(f"⚠️ I couldn't understand the model: '{v_curr['Model']}'")
-                else:
-                    st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
-                
+                st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
-                    st.session_state.trigger_analysis = False
                     st.rerun()
             st.stop()
         else:
-            # 2. SUCCESS: Update state with the official name from the database
-            # This ensures 'crv' becomes 'CR-V' before hitting the ML pipe
-            st.session_state.vehicle_data["Model"] = result
-            # We refresh the local variable to use the clean name immediately
-            model = result
+            # Result is now a dict: {"brand": "Toyota", "model": "Kluger", "status": "corrected"}
+            st.session_state.vehicle_data["Brand"] = result["brand"]
+            st.session_state.vehicle_data["Model"] = result["model"]
+            if result["status"] == "corrected":
+                st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
 
-        brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
+        brand, model = str(st.session_state.vehicle_data["Brand"]), str(st.session_state.vehicle_data["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
         # Plausibility check
@@ -187,18 +167,18 @@ with tab2:
             with st.chat_message("assistant"):
                 st.error("### 🛑 Check Details")
                 for w in warnings: st.write(w)
-                if st.button("Yes, these details are correct"):
+                if st.button("Yes, these are correct"):
                     st.session_state.confirmed_plausibility = True
                     st.rerun()
             st.stop()
 
-        # FINAL ANALYSIS REPORT
+        # FINAL REPORT
         with st.chat_message("assistant"):
             st.session_state.trigger_analysis = False 
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
-                st.write(f"⚠️ Baseline market price not found for {brand} {model}.")
+                st.write(f"⚠️ Market baseline not found for {brand} {model}.")
             else:
                 retention = calculate_market_prediction(pipe, brand, model, year, kms)
                 pred = retention * new_p
@@ -213,7 +193,7 @@ with tab2:
                 m_ctx = get_market_sources_for_brand(brand)
                 rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                 
-                with st.spinner("Generating Market Report..."):
+                with st.spinner("Analyzing Market Data..."):
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
                     st.markdown(report)
                     st.session_state.chat_history.append({"role": "assistant", "content": f"**Verdict: {verdict}**\n\n{report}"})
