@@ -18,7 +18,7 @@ Buyers of pre-owned cars often face:
 
 While some solutions predict price, there is no context or research to support decisions
 
-**This project aims to bridge that gap.**
+### **This project aims to bridge that gap.**
 ---
 
 ## Why not just ML prediction?
