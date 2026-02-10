@@ -11,69 +11,28 @@ This project separates **deterministic pricing logic** from **LLM-based reasonin
 ---
 ## 🎯 Problem Statement
 
-Used-car buyers often face:
+Buyers of pre-owned cars often face:
 - Incomplete or messy listings
-- Emotionally anchored seller prices
-- Tools that provide a number but not an explanation
-- Generic advice without grounding in market evidence
+- Emotionally based seller prices
+- Tools that provide a number but no explanation
 
-Most existing solutions either:
-- Predict a price with no context, or
-- Use GenAI without controls, risking hallucinations and mistrust
+While some solutions predict price, there is no context or research to support decisions
 
 **This project aims to bridge that gap.**
 ---
 
-## Why Not Just ML?
+## Why not just ML prediction?
 
-A price alone does not answer:
-- Is the listing *overpriced or justifiable*?
+Predicted price alone does not answer:
+- If the listing is *overpriced or justified*?
 - What factors matter for *this specific brand & model*?
-- How confident should the buyer be?
+- What are the *industry standard parameters* to be considered for a fair evaluation?
 
-The LLM layer translates numeric outputs into contextual, grounded reasoning —
+This is where an LLM layer translates numeric outputs into contextual, grounded reasoning —
 without being allowed to invent facts.
 
-# 1. Price Estimator (ML Based)
 
-Estimate the **retained price (New price - Depreciation)** per Brand/Model as a function of kilometres, age and vehicle attributes 
-
-## Repo Structure
-- `src/` training + feature pipeline
-- `models/` saved model + lookup tables
-- `streamlit_app.py` Streamlit UI
-
-## Setup (Local)
-```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Mac/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-
-```
-## ✅ Model Performance (5-Fold GroupKFold CV)
-
-Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakage.
-
-**Cross-validation results (Price prediction):** 
-- **MAPE:** ~ 24%  
-- **R²:** ~ 0.64  
-
-✅ The model's **R²** indicates a baseline performance for a marketplace with noise due to
-- Vehicle Condition: Scratches, interior wear and tear
-- Service History: A full logbook vs. no records
-- Modifications: Aftermarket wheels, bull bars, or tinted windows
-- Geography: A car in Sydney might sell differently than one in Perth
-
-## 📸 Screenshots
-
-### Sample Prediction Validation (Actual vs Predicted)
-![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_1.png)
-
-# 2. Deal Advisor Report (Gen AI Powered)
+# 1. Deal Advisor (Gen AI Powered)
 
 ## 🧠 Approach
 
@@ -224,3 +183,42 @@ It does not provide financial or legal advice.
 - Confidence scoring on explanations
 - Region-specific pricing adjustments
 - Automated source refresh with human review
+
+# 2. Price Estimator (ML Based)
+
+Estimate the **retained price (New price - Depreciation)** per Brand/Model as a function of kilometres, age and vehicle attributes 
+
+## Repo Structure
+- `src/` training + feature pipeline
+- `models/` saved model + lookup tables
+- `streamlit_app.py` Streamlit UI
+
+## Setup (Local)
+```bash
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Mac/Linux:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+```
+## ✅ LightGBM Model Performance (5-Fold GroupKFold CV)
+
+Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakage.
+
+**Cross-validation results (Price prediction):** 
+- **MAPE:** ~ 24%  
+- **R²:** ~ 0.64  
+
+✅ The model's **R²** indicates a baseline performance for a marketplace with noise due to
+- Vehicle Condition: Scratches, interior wear and tear
+- Service History: A full logbook vs. no records
+- Modifications: Aftermarket wheels, bull bars, or tinted windows
+- Geography: A car in Sydney might sell differently than one in Perth
+
+## 📸 Screenshots
+
+### Sample Prediction Validation (Actual vs Predicted)
+![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_1.png)
