@@ -131,7 +131,7 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 
 ## 🧪 Example User Flow
 
-1. User pastes a listing: *Honda CR-V 2020, 60,000 km, listed at $35,000*
+1. User types in listing details*: *Honda CR-V in great condition manufactured in 2020 with little under 60,000 km, listed at an attractive price of $35,000* )
 2. System extracts structured fields
 3. ML model predicts a fair price
 4. LLM explains:
@@ -139,6 +139,8 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 - How it compares to predicted price
 - What the buyer should do next
 5. Explanation cites relevant market sources
+
+**Top factors influencing price being Age, kms driven along with Brand & model. Ref to Screenshot section in the end*
 
 
 ## 🧑‍💼 Why This Project Matters
@@ -182,9 +184,11 @@ Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakag
 - Modifications: Aftermarket wheels, bull bars, or tinted windows
 - Geography: A car in Sydney might sell differently than one in Perth
 
-## 📸 Screenshots
+## 📸 Screenshot(s)
 
 ### Top features influencing resale value
+Age and kms driven influence the resale value on the model output. These 2 along with Brand and model have been used for listed price analysis.
+
 ![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_8.png)
 
 
