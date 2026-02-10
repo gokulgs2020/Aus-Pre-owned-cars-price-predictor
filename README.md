@@ -145,14 +145,14 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 
 ```
 .
-├── streamlit_app.py <br>
-├── models/ <br>
-│ ├── final_price_pipe.joblib <br>
-│ ├── new_price_lookup_bm.csv <br>
-│ ├── new_price_lookup_b.csv <br>
-├── data/ <br>
-│ └── curated_market_sources.json <br>
-├── README.md <br>
+├── streamlit_app.py
+├── models/
+│ ├── final_price_pipe.joblib
+│ ├── new_price_lookup_bm.csv
+│ ├── new_price_lookup_b.csv
+├── data/
+│ └── curated_market_sources.json
+├── README.md
 
 ```
 
