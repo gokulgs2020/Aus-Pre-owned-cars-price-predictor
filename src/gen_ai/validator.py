@@ -29,52 +29,55 @@ def validate_data_plausibility(brand, model, year, kms, price):
         warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,.0f} km on a {year} model. Please verify the odometer.")
     return warnings
 
+import pandas as pd
+
 def validate_model_existence(brand, model, brand_model_lookup):
     """
     Checks if model exists and resolves to canonical name. 
-    If brand is noisy or wrong, it attempts to infer the correct brand from the model.
+    Handles case-insensitivity and special characters (e.g., 'Santa FE' or 'CR-V').
     """
-    # 1. Base missing check
     if not model:
         return False, {"status": "missing", "message": "Model is required"}
     
-    # 2. Rubbish Check
     if len(str(model)) < 2 or not any(c.isalpha() for c in str(model)):
-        return False, {"status": "rubbish", "message": f"'{model}' doesn't look like a valid model name"}
+        return False, {"status": "rubbish", "message": f"'{model}' isn't a valid name"}
 
+    # Helper: Remove non-alphanumeric characters and lowercase
     def normalize(text):
         return "".join(char for char in str(text).lower() if char.isalnum())
 
     user_model_norm = normalize(model)
     user_brand_norm = normalize(brand) if brand else ""
 
-    # 3. GLOBAL SEARCH (Broadening the scope)
-    # Optimization: In production, we pre-calculate these normalized columns
-    lookup_copy = brand_model_lookup.copy()
-    lookup_copy['norm_model'] = lookup_copy['Model'].apply(normalize)
-    lookup_copy['norm_brand'] = lookup_copy['Brand'].apply(normalize)
+    # Check for matches
+    # Optimization: Instead of copying the whole DF, we filter first
+    # This handles "Santa FE" -> "santafe" matching "Santa Fe" -> "santafe"
+    
+    # Pre-calculate normalized columns for comparison
+    temp_df = brand_model_lookup.copy()
+    temp_df['norm_model'] = temp_df['Model'].apply(normalize)
+    temp_df['norm_brand'] = temp_df['Brand'].apply(normalize)
 
-    # Search for the model anywhere in the Australian database
-    matches = lookup_copy[lookup_copy['norm_model'] == user_model_norm]
+    # Search for model matches
+    model_matches = temp_df[temp_df['norm_model'] == user_model_norm]
 
-    if not matches.empty:
-        # Check if any match also aligns with the provided brand
-        brand_match = matches[matches['norm_brand'] == user_brand_norm]
+    if not model_matches.empty:
+        # Check if the brand matches too
+        brand_match = model_matches[model_matches['norm_brand'] == user_brand_norm]
         
         if not brand_match.empty:
-            # Case 1: Perfect match found
+            # Perfect Match (ignoring case/spaces)
             return True, {
                 "brand": brand_match.iloc[0]['Brand'], 
                 "model": brand_match.iloc[0]['Model'], 
                 "status": "valid"
             }
         else:
-            # Case 2: Model found but brand is different (Auto-correction)
+            # Model exists but under a different brand (e.g., user said 'Toyota Santa Fe')
             return True, {
-                "brand": matches.iloc[0]['Brand'], 
-                "model": matches.iloc[0]['Model'], 
+                "brand": model_matches.iloc[0]['Brand'], 
+                "model": model_matches.iloc[0]['Model'], 
                 "status": "corrected"
             }
     
-    # 4. Fallback if no model match is found at all
     return False, {"status": "not_in_db", "message": f"Unsupported Model: '{model}'"}
