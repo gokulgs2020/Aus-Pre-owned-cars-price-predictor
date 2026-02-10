@@ -8,7 +8,7 @@ from openai import OpenAI
 from src.gen_ai.model_utils import load_artifacts, lookup_new_price, calculate_market_prediction, get_market_sources_for_brand
 from src.gen_ai.validator import parse_numeric, validate_data_plausibility, validate_model_existence
 from src.gen_ai.prompts import SYSTEM_EXTRACTOR, SYSTEM_ANALYST, get_extraction_prompt, get_report_prompt
-from src.gen_ai.extractor import call_llm, safe_json_parse
+from src.gen_ai.extractor import call_llm_extractor, safe_json_parse
 
 # =====================================================
 # CONFIG & CLIENT
