@@ -26,10 +26,12 @@ pipe, bm, b, brand_model_lookup = load_artifacts()
 # =====================================================
 # SESSION STATE
 # =====================================================
-if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "chat_history" not in st.session_state: 
+    st.session_state.chat_history = []
 if "vehicle_data" not in st.session_state: 
     st.session_state.vehicle_data = {"Brand": None, "Model": None, "Year": None, "Kilometres": None, "Listed Price": None}
-if "confirmed_plausibility" not in st.session_state: st.session_state.confirmed_plausibility = False
+if "confirmed_plausibility" not in st.session_state: 
+    st.session_state.confirmed_plausibility = False
 
 # =====================================================
 # UI LAYOUT
@@ -59,6 +61,8 @@ with tab1:
 with tab2:
     st.header("AI Deal Advisor")
     v = st.session_state.vehicle_data
+    
+    # 1. UI METRICS BAR
     d1, d2, d3, d4, d5 = st.columns(5)
     d1.metric("Brand", v["Brand"] or "-")
     d2.metric("Model", v["Model"] or "-")
@@ -72,57 +76,88 @@ with tab2:
         st.session_state.confirmed_plausibility = False
         st.rerun()
 
+    # 2. CHAT DISPLAY
     for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]): st.markdown(msg["content"])
+        with st.chat_message(msg["role"]): 
+            st.markdown(msg["content"])
 
+    # 3. CHAT INPUT & GUARDRAILS
     user_input = st.chat_input("Enter details (e.g., '2022 Toyota Corolla 30k km $25000')")
     
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
+        
+        # --- GUARDRAIL: IRRELEVANT INPUT CHECK ---
+        # Checks for common car-related keywords. If not found, redirects the user.
+        car_keywords = ['toyota', 'mazda', 'honda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'valuation', 'sell', 'buy', 'kluger']
+        is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 4)
+
+        if not is_relevant:
+            msg = "I can assist with price evaluation! Please enter a valid Brand, Model, Year, and KMs so I can analyze the deal for you."
+            st.session_state.chat_history.append({"role": "assistant", "content": msg})
+            st.rerun()
+        # ------------------------------------------
+
+        # Call LLM Extractor to update state
         ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
-        raw_json = call_llm_extractor(client,SYSTEM_EXTRACTOR,ext_p,expect_json=True)
-        new_data = raw_json
-        for key in st.session_state.vehicle_data:
-            if new_data.get(key) is not None: 
-                st.session_state.vehicle_data[key] = new_data[key]
+        raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
+        
+        if raw_json:
+            for key in st.session_state.vehicle_data:
+                if raw_json.get(key) is not None: 
+                    st.session_state.vehicle_data[key] = raw_json[key]
+        
         st.session_state.confirmed_plausibility = False
         st.rerun()
 
+    # 4. VALIDATION & STATE RECOVERY
     v_curr = st.session_state.vehicle_data
-    is_valid, reason = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
+    
+    # Check if we have a model entered that needs validation
+    if v_curr["Model"]:
+        is_valid, reason = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
 
-    if not any(v_curr.values()):
-        st.info("Paste your car listing details below to start.")
-    elif not is_valid:
-        with st.chat_message("assistant"):
-            if reason == "rubbish": st.error(f"⚠️ Clarify the model: '{v_curr['Model']}'")
-            else: st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
-            if st.button("Clear Model"):
-                st.session_state.vehicle_data["Model"] = None
-                st.rerun()
-    else:
+        if not is_valid:
+            with st.chat_message("assistant"):
+                if reason == "rubbish": 
+                    st.error(f"⚠️ I'm having trouble identifying the model: '{v_curr['Model']}'.")
+                else: 
+                    st.warning(f"❌ Unsupported Model: '{v_curr['Model']}' for brand '{v_curr['Brand']}'.")
+                
+                # RECOVERY BUTTON: Clears the bad data and lets the user try again
+                if st.button("Clear Invalid Model"):
+                    st.session_state.vehicle_data["Model"] = None
+                    # Optional: Remove the last 'user' message to allow a clean retry
+                    if st.session_state.chat_history: st.session_state.chat_history.pop()
+                    st.rerun()
+            st.stop() # Prevents logic from falling through to prediction with invalid data
+
+    # 5. PLAUSIBILITY & PREDICTION
+    if v_curr["Brand"] and v_curr["Model"]:
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
+        # Check if the data makes sense (e.g. 1 million kms)
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
-                st.error("### 🛑 Check these details!")
+                st.error("### 🛑 Plausibility Warning")
                 for w in warnings: st.write(w)
                 if st.button("Yes, these details are correct"):
                     st.session_state.confirmed_plausibility = True
                     st.rerun()
             st.stop()
 
+        # Generate the Report if user just chatted
         if st.session_state.chat_history and st.session_state.chat_history[-1].get("role") == "user":
             with st.chat_message("assistant"):
                 new_p = lookup_new_price(brand, model, bm, b)
                 if np.isnan(new_p):
-                    st.write("⚠️ Baseline market price not found.")
+                    st.write(f"⚠️ Baseline market price for a new {brand} {model} not found. Prediction unavailable.")
                 else:
                     retention = calculate_market_prediction(pipe, brand, model, year, kms)
                     pred = retention * new_p
-                    gap = ((price - pred) / pred) * 100
+                    gap = ((price - pred) / pred) * 100 if price else 0
                     
                     verdict, color = ("FAIR PRICED", "blue")
                     if gap < -15: verdict, color = "VERY LOW!", "orange"
@@ -130,10 +165,16 @@ with tab2:
                     elif gap > 5: verdict, color = "OVER PRICED!", "orange"
 
                     st.markdown(f"### Verdict: :{color}[{verdict}]")
+                    
+                    # Call LLM Analyst for the detailed reasoning
                     m_ctx = get_market_sources_for_brand(brand)
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                     
-                    with st.spinner("Analyzing..."):
+                    with st.spinner("Analyzing Market Data..."):
                         report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
                         st.markdown(report)
                         st.session_state.chat_history.append({"role": "assistant", "content": f"**Verdict: {verdict}**\n\n{report}"})
+    else:
+        # Prompt user to start if no data is present
+        if not any(v_curr.values()):
+            st.info("Paste your car listing details or type a car name below to start.")
