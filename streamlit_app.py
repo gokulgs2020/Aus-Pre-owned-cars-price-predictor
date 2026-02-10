@@ -80,7 +80,7 @@ with tab2:
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
-        raw_json = call_llm(client, SYSTEM_EXTRACTOR, ext_p)
+        raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p)
         new_data = safe_json_parse(raw_json)
         for key in st.session_state.vehicle_data:
             if new_data.get(key) is not None: 
@@ -134,6 +134,6 @@ with tab2:
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                     
                     with st.spinner("Analyzing..."):
-                        report = call_llm(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
+                        report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
                         st.markdown(report)
                         st.session_state.chat_history.append({"role": "assistant", "content": f"**Verdict: {verdict}**\n\n{report}"})
