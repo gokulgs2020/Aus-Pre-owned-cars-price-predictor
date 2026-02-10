@@ -65,7 +65,7 @@ with tab2:
     st.header("AI Deal Advisor")
     v = st.session_state.vehicle_data
     
-    # 1. UI METRICS (Always show state)
+    # 1. UI METRICS (Always visible)
     d1, d2, d3, d4, d5 = st.columns(5)
     d1.metric("Brand", v["Brand"] or "-")
     d2.metric("Model", v["Model"] or "-")
@@ -95,12 +95,12 @@ with tab2:
         is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 3)
 
         if not is_relevant:
-            msg = "I can assist with used car price evaluation only! Please enter a valid Brand, Model, Year and KMs."
+            msg = "I can assist with used car price evaluation! Please enter a valid Brand, Model, Year and KMs."
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             st.rerun()
         
         # --- EXTRACTION ---
-        with st.spinner("Extracting..."):
+        with st.spinner("Extracting details..."):
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
             if raw_json:
@@ -108,29 +108,41 @@ with tab2:
                     if raw_json.get(key) is not None: 
                         st.session_state.vehicle_data[key] = raw_json[key]
         
-        st.session_state.trigger_analysis = True # Force report generation
+        st.session_state.trigger_analysis = True 
         st.rerun()
 
-    # 4. DATA VALIDATION
+    # 4. DATA VALIDATION & PROMPT FOR MISSING INFO
     v_curr = st.session_state.vehicle_data
-    if v_curr["Model"]:
+    
+    # Identify what is missing
+    missing = [k for k, val in v_curr.items() if val is None]
+    
+    # If something is missing and the user just typed something
+    if missing and st.session_state.trigger_analysis:
+        st.session_state.trigger_analysis = False
+        with st.chat_message("assistant"):
+            missing_str = ", ".join(missing)
+            prompt_msg = f"I've got some details, but I'm still missing the **{missing_str}**. Could you please provide those?"
+            st.info(prompt_msg)
+            st.session_state.chat_history.append({"role": "assistant", "content": prompt_msg})
+        st.stop()
+
+    # 5. THE ANALYST ENGINE (Runs only when data is complete)
+    if all(v_curr.values()) and st.session_state.trigger_analysis:
+        # Validate the model name specifically
         is_valid, reason = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         if not is_valid:
             with st.chat_message("assistant"):
                 st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
-                    st.session_state.trigger_analysis = False
                     st.rerun()
             st.stop()
 
-    # 5. THE ANALYST (THE "ENGINE")
-    # This runs if data is complete and we just had an update
-    if v_curr["Brand"] and v_curr["Model"] and v_curr["Year"] and st.session_state.trigger_analysis:
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
-        # Plausibility check before report
+        # Plausibility check
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
@@ -141,13 +153,13 @@ with tab2:
                     st.rerun()
             st.stop()
 
-        # RUN THE REPORT
+        # FINAL ANALYSIS REPORT
         with st.chat_message("assistant"):
-            st.session_state.trigger_analysis = False # Reset flag so it doesn't loop
+            st.session_state.trigger_analysis = False 
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
-                st.write(f"⚠️ Market price not found for {brand} {model}.")
+                st.write(f"⚠️ Baseline market price not found for {brand} {model}.")
             else:
                 retention = calculate_market_prediction(pipe, brand, model, year, kms)
                 pred = retention * new_p
