@@ -80,8 +80,8 @@ with tab2:
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
-        raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p)
-        new_data = safe_json_parse(raw_json)
+        raw_json = call_llm_extractor(client,SYSTEM_EXTRACTOR,ext_p,expect_json=True)
+        new_data = raw_json
         for key in st.session_state.vehicle_data:
             if new_data.get(key) is not None: 
                 st.session_state.vehicle_data[key] = new_data[key]
