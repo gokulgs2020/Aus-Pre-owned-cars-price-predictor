@@ -84,7 +84,6 @@ with tab2:
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    # 3. INPUT PROCESSING
     # 3. CHAT INPUT & SMART GUARDRAILS
     user_input = st.chat_input("Enter details (e.g., '2022 Toyota Corolla 30k km $25000')")
     
@@ -95,28 +94,45 @@ with tab2:
         v_curr = st.session_state.vehicle_data
         missing = [k for k, val in v_curr.items() if val is None]
         
-        # Allow input if it contains car keywords OR if it's a number and we are missing numeric fields
-        car_keywords = ['toyota', 'honda', 'mazda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'kluger', 'crv', 'cr-v']
+        # Expanded keywords to be more inclusive of Australian models
+        car_keywords = ['toyota', 'honda', 'mazda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'kluger', 'crv', 'cr-v', 'rav4']
         is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 2)
         
-        # New: If the user provides just a number (like '40000') and we are missing KMs or Price, let it pass
-        is_numeric_followup = user_input.strip().isdigit() and ('Kilometres' in missing or 'Listed Price' in missing)
+        # Check if the input is a single numeric follow-up for missing fields
+        clean_input = user_input.strip().replace(",", "").replace("$", "")
+        is_numeric_followup = clean_input.isdigit() and any(k in missing for k in ['Kilometres', 'Listed Price', 'Year'])
 
         if not (is_relevant or is_numeric_followup):
             msg = "I can assist with used car price evaluation only! Please enter a valid Brand, Model, Year and KMs."
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             st.rerun()
         
-        # --- EXTRACTION ---
+        # --- EXTRACTION WITH HEURISTIC FALLBACK ---
         with st.spinner("Updating details..."):
-            # The LLM Extractor is great at taking "40000" and knowing it belongs in KMs 
-            # because we pass the current vehicle_data context to it.
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
+            
+            # SENIOR FIX: If LLM failed to extract a numeric follow-up, handle it deterministically
+            if is_numeric_followup and raw_json:
+                val = int(clean_input)
+                # Map the lone number to the first available numeric 'None' slot
+                if v_curr["Kilometres"] is None and val > 1000:
+                    raw_json["Kilometres"] = val
+                elif v_curr["Year"] is None and 1990 <= val <= 2026:
+                    raw_json["Year"] = val
+                elif v_curr["Listed Price"] is None:
+                    raw_json["Listed Price"] = val
+
+            # Update the Global Session State
             if raw_json:
                 for key in st.session_state.vehicle_data:
                     if raw_json.get(key) is not None: 
-                        st.session_state.vehicle_data[key] = raw_json[key]
+                        # Cast to int where appropriate for ML pipeline compatibility
+                        value = raw_json[key]
+                        if key in ["Year", "Kilometres", "Listed Price"] and value is not None:
+                            try: value = int(str(value).replace(",", "").replace("$", ""))
+                            except: pass
+                        st.session_state.vehicle_data[key] = value
         
         st.session_state.trigger_analysis = True 
         st.rerun()
