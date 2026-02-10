@@ -32,9 +32,9 @@ if "vehicle_data" not in st.session_state:
     st.session_state.vehicle_data = {"Brand": None, "Model": None, "Year": None, "Kilometres": None, "Listed Price": None}
 if "confirmed_plausibility" not in st.session_state: 
     st.session_state.confirmed_plausibility = False
-# Tracks if we just updated the data so we can trigger the analyst
-if "just_updated" not in st.session_state:
-    st.session_state.just_updated = False
+# This flag ensures the report generates immediately after valid extraction
+if "trigger_analysis" not in st.session_state:
+    st.session_state.trigger_analysis = False
 
 # =====================================================
 # UI LAYOUT
@@ -65,7 +65,7 @@ with tab2:
     st.header("AI Deal Advisor")
     v = st.session_state.vehicle_data
     
-    # 1. UI METRICS BAR
+    # 1. UI METRICS (Always show state)
     d1, d2, d3, d4, d5 = st.columns(5)
     d1.metric("Brand", v["Brand"] or "-")
     d2.metric("Model", v["Model"] or "-")
@@ -74,25 +74,24 @@ with tab2:
     d5.metric("Price", f"${v['Listed Price']:,}" if v["Listed Price"] else "-")
 
     if st.button("Reset Advisor"):
-        st.session_state.chat_history = []
-        st.session_state.vehicle_data = {k: None for k in st.session_state.vehicle_data}
-        st.session_state.confirmed_plausibility = False
-        st.session_state.just_updated = False
+        for key in ["chat_history", "vehicle_data", "confirmed_plausibility", "trigger_analysis"]:
+            if key == "vehicle_data": st.session_state[key] = {k: None for k in v}
+            elif key == "chat_history": st.session_state[key] = []
+            else: st.session_state[key] = False
         st.rerun()
 
     # 2. CHAT DISPLAY
     for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]): 
-            st.markdown(msg["content"])
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    # 3. CHAT INPUT & GUARDRAILS
+    # 3. INPUT PROCESSING
     user_input = st.chat_input("Enter details (e.g., '2022 Toyota Corolla 30k km $25000')")
     
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         
-        # --- GUARDRAIL: IRRELEVANT INPUT CHECK ---
-        car_keywords = ['toyota', 'mazda', 'honda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'valuation', 'sell', 'buy', 'kluger']
+        # --- GUARDRAIL: IRRELEVANT INPUT ---
+        car_keywords = ['toyota', 'mazda', 'honda', 'km', 'price', '$', '20', 'model', 'car', 'valuation', 'kluger']
         is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 3)
 
         if not is_relevant:
@@ -100,21 +99,19 @@ with tab2:
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
             st.rerun()
         
-        # --- DATA EXTRACTION ---
-        with st.spinner("Extracting details..."):
+        # --- EXTRACTION ---
+        with st.spinner("Extracting..."):
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
-            
             if raw_json:
                 for key in st.session_state.vehicle_data:
                     if raw_json.get(key) is not None: 
                         st.session_state.vehicle_data[key] = raw_json[key]
         
-        st.session_state.confirmed_plausibility = False
-        st.session_state.just_updated = True # Flag to trigger the analyst on rerun
+        st.session_state.trigger_analysis = True # Force report generation
         st.rerun()
 
-    # 4. VALIDATION
+    # 4. DATA VALIDATION
     v_curr = st.session_state.vehicle_data
     if v_curr["Model"]:
         is_valid, reason = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
@@ -123,50 +120,49 @@ with tab2:
                 st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
-                    if st.session_state.chat_history: st.session_state.chat_history.pop()
+                    st.session_state.trigger_analysis = False
                     st.rerun()
             st.stop()
 
-    # 5. ANALYSIS TRIGGER
-    if v_curr["Brand"] and v_curr["Model"] and v_curr["Year"]:
+    # 5. THE ANALYST (THE "ENGINE")
+    # This runs if data is complete and we just had an update
+    if v_curr["Brand"] and v_curr["Model"] and v_curr["Year"] and st.session_state.trigger_analysis:
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
-        # Plausibility check
+        # Plausibility check before report
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
-                st.error("### 🛑 Plausibility Warning")
+                st.error("### 🛑 Check Details")
                 for w in warnings: st.write(w)
                 if st.button("Yes, these details are correct"):
                     st.session_state.confirmed_plausibility = True
                     st.rerun()
             st.stop()
 
-        # RUN THE ANALYST
-        # We trigger this if there was just an update OR the last message was from the user
-        if st.session_state.just_updated or (st.session_state.chat_history and st.session_state.chat_history[-1]["role"] == "user"):
-            st.session_state.just_updated = False # Reset the flag
+        # RUN THE REPORT
+        with st.chat_message("assistant"):
+            st.session_state.trigger_analysis = False # Reset flag so it doesn't loop
+            new_p = lookup_new_price(brand, model, bm, b)
             
-            with st.chat_message("assistant"):
-                new_p = lookup_new_price(brand, model, bm, b)
-                if np.isnan(new_p):
-                    st.write(f"⚠️ Baseline market price not found for {brand} {model}.")
-                else:
-                    retention = calculate_market_prediction(pipe, brand, model, year, kms)
-                    pred = retention * new_p
-                    gap = ((price - pred) / pred) * 100 if price else 0
-                    
-                    verdict, color = ("FAIR PRICED", "blue")
-                    if gap < -15: verdict, color = "VERY LOW!", "orange"
-                    elif gap < -5: verdict, color = "BARGAIN", "green"
-                    elif gap > 5: verdict, color = "OVER PRICED!", "orange"
+            if np.isnan(new_p):
+                st.write(f"⚠️ Market price not found for {brand} {model}.")
+            else:
+                retention = calculate_market_prediction(pipe, brand, model, year, kms)
+                pred = retention * new_p
+                gap = ((price - pred) / pred) * 100 if price else 0
+                
+                verdict, color = ("FAIR PRICED", "blue")
+                if gap < -15: verdict, color = "VERY LOW!", "orange"
+                elif gap < -5: verdict, color = "BARGAIN", "green"
+                elif gap > 5: verdict, color = "OVER PRICED!", "orange"
 
-                    st.markdown(f"### Verdict: :{color}[{verdict}]")
-                    m_ctx = get_market_sources_for_brand(brand)
-                    rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
-                    
-                    with st.spinner("Analyzing Market Data..."):
-                        report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
-                        st.markdown(report)
-                        st.session_state.chat_history.append({"role": "assistant", "content": f"**Verdict: {verdict}**\n\n{report}"})
+                st.markdown(f"### Verdict: :{color}[{verdict}]")
+                m_ctx = get_market_sources_for_brand(brand)
+                rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
+                
+                with st.spinner("Generating Market Report..."):
+                    report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
+                    st.markdown(report)
+                    st.session_state.chat_history.append({"role": "assistant", "content": f"**Verdict: {verdict}**\n\n{report}"})
