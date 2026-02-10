@@ -1,8 +1,8 @@
-# AUS Preowned Car Price Estimator & Deal Advisor Report
+# Gen AI driven price guide for pre-owned cars in Aus market
 
 This project has 2 primary functions : 
 
-1. Predict preowned car prices using a **retention-based model** on AUS car data (2023-2024) 
+1. Predict preowned car prices using a **retention-based model** on AUS car resale listing data (2023-2024) 
 
 2. A decision-support application that combines the prediction with **Gen AI–powered explanations**, designed to help buyers evaluate whether a used car listing is fairly priced.
 
@@ -66,12 +66,12 @@ graph TD
     end
 
 ```
-The system is structured into four layers:
+The system is structured into 4 layers:
 
 ### 1️⃣ ML Pricing Layer (Deterministic)
 - Trained LightGBM model
 - Inputs: age, mileage (log-transformed), brand, model, interactions
-- Output: predicted price via implied retention × new price proxy
+- Output: predicted price via implied retention & new price proxy
 - **No GenAI involvement**
 
 ### 2️⃣ Market Knowledge Layer (Controlled Evidence)
@@ -113,7 +113,7 @@ The system is structured into four layers:
 
 ---
 
-## 🛡️ Hallucination Prevention Strategy
+## 🛡️ Integrity Check
 
 This project is intentionally designed to **limit LLM freedom**:
 
@@ -140,29 +140,6 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 - What the buyer should do next
 5. Explanation cites relevant market sources
 
-
-## 🗂️ Repository Structure
-
-```
-.
-├── streamlit_app.py
-├── models/
-│ ├── final_price_pipe.joblib
-│ ├── new_price_lookup_bm.csv
-│ ├── new_price_lookup_b.csv
-├── data/
-│ └── curated_market_sources.json
-├── README.md
-
-```
-
-## ▶️ How to Run Locally
-
-```bash
-pip install -r requirements.txt
-export OPENAI_API_KEY=your_key_here
-streamlit run streamlit_app.py
-```
 
 ## 🧑‍💼 Why This Project Matters
 
@@ -191,22 +168,6 @@ It does not provide financial or legal advice.
 
 Estimate the **retained price (New price - Depreciation)** per Brand/Model as a function of kilometres, age and vehicle attributes 
 
-## Repo Structure
-- `src/` training + feature pipeline
-- `models/` saved model + lookup tables
-- `streamlit_app.py` Streamlit UI
-
-## Setup (Local)
-```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Mac/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-
-```
 ## ✅ LightGBM Model Performance (5-Fold GroupKFold CV)
 
 Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakage.
@@ -223,5 +184,47 @@ Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakag
 
 ## 📸 Screenshots
 
-### Sample Prediction Validation (Actual vs Predicted)
-![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_1.png)
+### Top features influencing resale value
+![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_8.png)
+
+
+## 🗂️ Repository Structure
+
+```
+.
+├── streamlit_app.py
+├── requirements.txt
+├── .gitignore
+├── runtime.txt
+├── assets/
+│   ├── screenshot_1.png
+│   └── screenshot_2.png
+├── src/
+│   ├── gen_ai/
+│   │   ├── model_utils.py
+│   │   ├── prompts.py
+│   │   ├── extractor.py
+│   │   └── validator.py
+│   └── ml/
+│       ├── train.py
+│       ├── features.py
+│       ├── utils.py
+│       ├── data_prep.py
+│       └── config.py
+├── models/
+│   ├── final_price_pipe.joblib
+│   ├── new_price_lookup_bm.csv
+│   └── new_price_lookup_b.csv
+├── data/
+│   └── curated_market_sources.json
+└── README.md
+
+```
+
+## ▶️ How to Run Locally
+
+```bash
+pip install -r requirements.txt
+export OPENAI_API_KEY=your_key_here
+streamlit run streamlit_app.py
+```
