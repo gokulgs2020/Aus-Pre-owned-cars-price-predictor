@@ -13,13 +13,19 @@ def safe_json_parse(text: str):
     except json.JSONDecodeError:
         return {}
 
-def call_llm_extractor(client, system_prompt, user_prompt):
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+def call_llm_extractor(client, system_prompt, user_prompt, *, expect_json=False, temperature=0):
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        temperature=0
+        temperature=temperature
     )
-    return safe_json_parse(resp.choices[0].message.content)
+
+    content = response.choices[0].message.content
+
+    if expect_json:
+        return safe_json_parse(content)
+
+    return content
