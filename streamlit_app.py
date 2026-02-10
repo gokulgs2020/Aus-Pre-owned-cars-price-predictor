@@ -96,6 +96,8 @@ with tab2:
         clean_input = user_input.strip().replace(",", "").replace("$", "")
         car_keywords = ['toyota', 'honda', 'mazda', 'hyundai', 'kia', 'km', 'price', '$', '20', 'model', 'car', 'kluger', 'crv', 'cr-v', 'rav4']
         is_relevant = any(word in user_input.lower() for word in car_keywords) or (len(user_input.split()) > 2)
+        
+        # Allow numeric follow-ups if price, kms, or year are missing
         is_numeric_followup = clean_input.isdigit() and any(k in missing for k in ['Kilometres', 'Listed Price', 'Year'])
 
         if not (is_relevant or is_numeric_followup):
@@ -108,7 +110,13 @@ with tab2:
             ext_p = get_extraction_prompt(st.session_state.vehicle_data, user_input)
             raw_json = call_llm_extractor(client, SYSTEM_EXTRACTOR, ext_p, expect_json=True)
             
-            # Map lone numbers if LLM missed it
+            # Catch Numeric Ambiguity (Disambiguation Logic)
+            if raw_json and raw_json.get("ambiguity") == "numeric_collision":
+                msg = "I see two numbers here. Could you clarify which one is the **Price** and which is the **Kilometres**?"
+                st.session_state.chat_history.append({"role": "assistant", "content": msg})
+                st.rerun()
+
+            # Senior Heuristic: If LLM failed to extract a lone numeric follow-up, map it manually
             if is_numeric_followup and raw_json:
                 val = int(clean_input)
                 if v_curr["Kilometres"] is None and val > 1000: raw_json["Kilometres"] = val
@@ -127,41 +135,42 @@ with tab2:
         st.session_state.trigger_analysis = True 
         st.rerun()
 
-    # 4. DATA VALIDATION & PROMPT FOR MISSING
+    # 4. DATA VALIDATION & MISSING INFO PROMPT
     v_curr = st.session_state.vehicle_data
     missing = [k for k, val in v_curr.items() if val is None]
 
     if missing and st.session_state.trigger_analysis:
         st.session_state.trigger_analysis = False
         with st.chat_message("assistant"):
-            msg = f"I'm still missing: **{', '.join(missing)}**. Could you provide those?"
+            msg = f"I've got some details, but I'm still missing the **{', '.join(missing)}**. Could you provide those?"
             st.info(msg)
             st.session_state.chat_history.append({"role": "assistant", "content": msg})
         st.stop()
 
     # 5. THE ANALYST ENGINE
     if all(v_curr.values()) and st.session_state.trigger_analysis:
+        # Cross-validate Brand/Model (Handles noise like @##@RDSF)
         is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         
         if not is_valid:
             with st.chat_message("assistant"):
-                st.warning(f"❌ Unsupported Model: '{v_curr['Model']}'")
+                st.warning(f"❌ {result.get('message', 'Unsupported Model')}")
                 if st.button("Clear Invalid Model"):
                     st.session_state.vehicle_data["Model"] = None
                     st.rerun()
-            st.stop() # CRITICAL: Stop here so we don't hit the KeyError
+            st.stop()
         else:
-            # result is guaranteed to be a dict here
+            # result is a dict: {"brand": "Toyota", "model": "Kluger", "status": "corrected"}
             st.session_state.vehicle_data["Brand"] = result["brand"]
             st.session_state.vehicle_data["Model"] = result["model"]
-            
             if result["status"] == "corrected":
-                st.toast(f"🤖 Auto-corrected Brand to {result['brand']}", icon="✅")
+                st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
 
+        # Prepare for ML Prediction
         brand, model = str(st.session_state.vehicle_data["Brand"]), str(st.session_state.vehicle_data["Model"])
         year, kms, price = parse_numeric(v_curr["Year"]), parse_numeric(v_curr["Kilometres"]), parse_numeric(v_curr["Listed Price"])
         
-        # Plausibility check
+        # Plausibility Check (Safety logic)
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
@@ -172,13 +181,13 @@ with tab2:
                     st.rerun()
             st.stop()
 
-        # FINAL REPORT
+        # FINAL REPORT GENERATION
         with st.chat_message("assistant"):
             st.session_state.trigger_analysis = False 
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
-                st.write(f"⚠️ Market baseline not found for {brand} {model}.")
+                st.write(f"⚠️ Baseline market baseline not found for {brand} {model}.")
             else:
                 retention = calculate_market_prediction(pipe, brand, model, year, kms)
                 pred = retention * new_p
