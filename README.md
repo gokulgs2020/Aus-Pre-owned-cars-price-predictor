@@ -24,13 +24,21 @@ Most existing solutions either:
 **This project aims to bridge that gap.**
 ---
 
-# 1. Price Estimator
+## Why Not Just ML?
 
-a) Estimate an approximate **New Price** per Brand/Model from near-new vehicles  
-b) Learn **retention = Price / New_Price** as a function of kilometres, age, and vehicle attributes  
-c) Convert predicted retention back into price
+A price alone does not answer:
+- Is the listing *overpriced or justifiable*?
+- What factors matter for *this specific brand & model*?
+- How confident should the buyer be?
 
-## Project Structure
+The LLM layer translates numeric outputs into contextual, grounded reasoning —
+without being allowed to invent facts.
+
+# 1. Price Estimator (ML Based)
+
+Estimate the **retained price (New price - Depreciation)** per Brand/Model as a function of kilometres, age and vehicle attributes 
+
+## Repo Structure
 - `src/` training + feature pipeline
 - `models/` saved model + lookup tables
 - `streamlit_app.py` Streamlit UI
@@ -54,19 +62,18 @@ Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakag
 - **MAE:** ~ A$2.5K–A$4K  
 - **RMSE:** ~ A$5K–A$15K  
 - **MAPE:** ~ 8%-14%  
-- **R²:** ~ 0.8-0.9  
+- **R²:** ~ 0.7-0.8  
 
-✅ The model achieves ~**0.86 R² on average**, indicating strong pricing predictive power for pre-owned cars.
+✅ The model's **R²** between 0.7-0.8 indicates robust and generalized prediction for pre-owned cars.
 
 ## 📸 Screenshots
 
 ### Sample Prediction Validation (Actual vs Predicted)
 ![Actual vs Predicted 1](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_1.png)
-![Actual vs Predicted 2](https://raw.githubusercontent.com/gokulgs2020/Aus-Pre-owned-cars-price-predictor/main/assets/screenshot_2.png)
 
-# 2. Deal Advisor Report
+# 2. Deal Advisor Report (Gen AI Powered)
 
-## 🧠 Project Goals
+## 🧠 Approach
 
 1. **Predict a fair market price** for a used car using a trained ML model  
 2. **Explain the price** in clear, buyer-friendly language  
@@ -78,6 +85,24 @@ Evaluation done using **GroupKFold** split by **Brand + Model** to reduce leakag
 
 ## 🧩 High-Level Architecture
 
+graph TD
+    A[User Natural Language Input] --> B[GenAI Extraction Layer]
+    B -->|Structured JSON| C{Validation Gate}
+    C -->|Rubbish/Unsupported| D[Graceful Error Handling]
+    C -->|Valid Model| E[LightGBM Prediction Engine]
+    E -->|Price Retention %| F[Numeric Valuation]
+    F --> G[GenAI Synthesis Layer]
+    G -->|Contextual Market Report| H[Final Deal Advisor Output]
+    
+    subgraph "Generative AI Extension"
+    B
+    G
+    end
+    
+    subgraph "Core ML Logic"
+    E
+    end
+
 The system is structured into four layers:
 
 ### 1️⃣ ML Pricing Layer (Deterministic)
@@ -87,7 +112,7 @@ The system is structured into four layers:
 - **No GenAI involvement**
 
 ### 2️⃣ Market Knowledge Layer (Controlled Evidence)
-- `market_sources.json` containing short, LLM generated summaries
+- `curated_market_sources.json` short, LLM generated summaries reviewed by human
 - Sources include automotive websites discussing:
   - Resale value
   - Reliability
@@ -137,7 +162,7 @@ This project is intentionally designed to **limit LLM freedom**:
   - Cite sources inline
   - Avoid absolute claims
 
-The LLM is used for **reasoning over facts**, not generating facts.
+The LLM is used for **reasoning over facts**, not for predicting numbers or generating facts.
 
 ---
 
@@ -162,7 +187,7 @@ The LLM is used for **reasoning over facts**, not generating facts.
 │ ├── new_price_lookup_bm.csv <br>
 │ ├── new_price_lookup_b.csv <br>
 ├── data/ <br>
-│ └── market_sources.json <br>
+│ └── curated_market_sources.json <br>
 ├── README.md <br>
 
 ## ▶️ How to Run Locally
