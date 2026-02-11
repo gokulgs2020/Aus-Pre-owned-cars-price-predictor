@@ -25,6 +25,7 @@ def get_extraction_prompt(current_data, user_input):
     4. AGE CALCULATION: If 'X years old' is mentioned, set 'Year' to {2026} - X.
     5. MODEL CANONICALIZATION: Map variants (e.g., 'crv', 'v-cruiser') to their official names in the {current_data['Brand']} lineup.
     6. If the user provides a year > 2026, set 'Year' to null and add "error": "future_year"
+    7. Extract the Brand and Model exactly as the user provides them. Do NOT attempt to correct spellings or map them to known brands. If the user says 'Arkana', the model is 'Arkana'. If the user says 'Renault', the brand is 'Renault'. Accuracy is critical
 
     TARGET FIELDS TO FILL: {missing_fields}
     
