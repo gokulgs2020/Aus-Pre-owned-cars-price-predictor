@@ -2,6 +2,9 @@
 import re
 import pandas as pd
 import difflib
+from datetime import datetime
+CURRENT_YEAR = datetime.now().year
+
 
 def parse_numeric(value):
     if value in [None, "null", "-", "None"]: return None
@@ -20,14 +23,18 @@ def validate_data_plausibility(brand, model, year, kms, price):
     if not all([year, kms, price]):
         return warnings
 
-    age = max(1, 2026 - year) 
+    if year < 1950 or year > CURRENT_YEAR:
+        warnings.append("Year is implausible")
+        return warnings   # stop further logic if invalid
+    
+    age = max(1, CURRENT_YEAR - year) 
     km_per_year = kms / age
     
-    if year >= 2022 and price < 10000:
+    if year >= CURRENT_YEAR-4 and price < 10000:
         warnings.append(f"⚠️ **Price Alert:** AU ${price:,.0f} for a {year} model is suspiciously low. Verify if this is a scam.")
     if km_per_year > 25000:
         warnings.append(f"🏎️ **High Usage:** This {brand} has averaged {int(km_per_year):,} km/year; more than 2x the Australian avg (~13,000km/yr; Source: ABS).")
-    if year <= 2024 and kms < 1500:
+    if year <= CURRENT_YEAR-2 and kms < 1500:
         warnings.append(f"🔍 **Suspiciously Low Kms:** Only {kms:,.0f} km on a {year} model. Please verify the odometer.")
     return warnings
 
