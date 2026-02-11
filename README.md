@@ -99,6 +99,7 @@ The system is structured into 4 layers:
 - Missing-field nudging (ask only for what’s missing)
 - Plausibility checks (e.g., unrealistic price/year combinations)
 - Allows **field-level corrections** instead of full re-entry
+- QA validation by a secondary agent (WIP)
 
 ---
 
@@ -139,6 +140,7 @@ The LLM is used for **reasoning over facts**, not for predicting numbers or gene
 - How it compares to predicted price
 - What the buyer should do next
 5. Explanation cites relevant market sources
+6. A critic agent validates the generated output for faithfulness, hallucination (WIP)
 
 **Top factors influencing price being Age, kms driven along with Brand & model. Ref to Screenshot section in the end*
 
@@ -195,7 +197,7 @@ Age and kms driven influence the resale value on the model output. These 2 along
 ## 🗂️ Repository Structure
 
 ```
-.
+
 ├── streamlit_app.py
 ├── requirements.txt
 ├── .gitignore
@@ -221,6 +223,8 @@ Age and kms driven influence the resale value on the model output. These 2 along
 │   └── new_price_lookup_b.csv
 ├── data/
 │   └── curated_market_sources.json
+├── tests/
+│   └── test_validator.py
 └── README.md
 
 ```
