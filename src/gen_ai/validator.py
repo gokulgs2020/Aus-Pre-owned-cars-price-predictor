@@ -38,53 +38,61 @@ def validate_data_plausibility(brand, model, year, kms, price):
 
 def validate_model_existence(brand, model, brand_model_lookup):
     """
-    STRICT HIERARCHICAL LOOKUP:
-    Enforces Brand isolation to prevent cross-brand hallucinations 
-    (e.g., stops Renault Arkana resolving to Holden Barina).
+    STRICT HIERARCHICAL LOOKUP :
+    1. Direct Exact Match (Case-insensitive)
+    2. Normalized Match (Alpha-numeric only)
+    3. Brand-Locked Fuzzy Match (difflib)
     """
-    if not model:
-        return False, {"status": "missing", "message": "Model is required"}
-    
+    if not model or not brand:
+        return False, {"status": "missing", "message": "Brand and Model are required"}
+
+    # --- HELPER: NORMALIZE ---
     def normalize(text):
         return "".join(char for char in str(text).lower() if char.isalnum())
 
+    user_brand_norm = normalize(brand)
     user_model_norm = normalize(model)
-    user_brand_norm = normalize(brand) if brand else ""
+    user_model_raw = str(model).strip().lower()
 
-    # Pre-calculate normalized columns for efficient lookup
+    # Create working copy of reference data
     temp_df = brand_model_lookup.copy()
-    temp_df['norm_model'] = temp_df['Model'].apply(normalize)
-    temp_df['norm_brand'] = temp_df['Brand'].apply(normalize)
+    # Create raw lowercase columns for "Soft" matching (handles hyphens/spaces better)
+    temp_df['raw_brand'] = temp_df['Brand'].str.strip().str.lower()
+    temp_df['raw_model'] = temp_df['Model'].str.strip().str.lower()
+    # Create fully normalized columns for "Hard" matching
+    temp_df['norm_brand'] = temp_df['raw_brand'].apply(normalize)
+    temp_df['norm_model'] = temp_df['raw_model'].apply(normalize)
 
     # --- STEP 1: RESOLVE BRAND ---
-    brand_list = temp_df['norm_brand'].unique()
+    brand_list_norm = temp_df['norm_brand'].unique()
     resolved_brand_norm = None
     
-    if user_brand_norm in brand_list:
+    if user_brand_norm in brand_list_norm:
         resolved_brand_norm = user_brand_norm
     else:
         # Fuzzy match brand only if user provided one that isn't exact
-        brand_matches = difflib.get_close_matches(user_brand_norm, brand_list, n=1, cutoff=0.7)
+        brand_matches = difflib.get_close_matches(user_brand_norm, brand_list_norm, n=1, cutoff=0.7)
         if brand_matches:
             resolved_brand_norm = brand_matches[0]
 
-    # --- STEP 2: BRAND-LOCKED SEARCH ---
+    # --- STEP 2: BRAND-LOCKED SEARCH (NO ESCAPE) ---
     if resolved_brand_norm:
         brand_filtered_df = temp_df[temp_df['norm_brand'] == resolved_brand_norm]
         actual_brand_name = brand_filtered_df.iloc[0]['Brand']
         
-        # 2a. Exact match within brand
-        exact_match = brand_filtered_df[brand_filtered_df['norm_model'] == user_model_norm]
+        # 2a. Direct Exact Match (e.g., 'CR-V' matches 'CR-V')
+        exact_match = brand_filtered_df[brand_filtered_df['raw_model'] == user_model_raw]
         if not exact_match.empty:
-            return True, {
-                "brand": actual_brand_name, 
-                "model": exact_match.iloc[0]['Model'], 
-                "status": "valid"
-            }
+            return True, {"brand": actual_brand_name, "model": exact_match.iloc[0]['Model'], "status": "valid"}
+
+        # 2b. Normalized Match (e.g., 'CRV' matches 'CR-V')
+        norm_match = brand_filtered_df[brand_filtered_df['norm_model'] == user_model_norm]
+        if not norm_match.empty:
+            return True, {"brand": actual_brand_name, "model": norm_match.iloc[0]['Model'], "status": "valid"}
         
-        # 2b. Fuzzy match ONLY within this brand
-        model_list = brand_filtered_df['norm_model'].unique()
-        model_matches = difflib.get_close_matches(user_model_norm, model_list, n=1, cutoff=0.6)
+        # 2c. Fuzzy match ONLY within this brand
+        model_list_norm = brand_filtered_df['norm_model'].unique()
+        model_matches = difflib.get_close_matches(user_model_norm, model_list_norm, n=1, cutoff=0.6)
         
         if model_matches:
             match_row = brand_filtered_df[brand_filtered_df['norm_model'] == model_matches[0]].iloc[0]
@@ -94,25 +102,9 @@ def validate_model_existence(brand, model, brand_model_lookup):
                 "status": "corrected"
             }
         else:
-            # IMPORTANT: We found the brand, but the model doesn't exist. 
-            # We STOP here and do NOT fall back to other brands.
             return False, {
                 "status": "not_in_db", 
                 "message": f"I recognize '{actual_brand_name}', but '{model}' is not in my dataset."
             }
 
-    # --- STEP 3: FALLBACK (Only if Brand was totally missing or unknown) ---
-    # We only reach this if resolved_brand_norm is None.
-    if not user_brand_norm:
-        all_models = temp_df['norm_model'].unique()
-        closest_names = difflib.get_close_matches(user_model_norm, all_models, n=1, cutoff=0.85) # Very high strictness
-        
-        if closest_names:
-            match_row = temp_df[temp_df['norm_model'] == closest_names[0]].iloc[0]
-            return True, {
-                "brand": match_row['Brand'],
-                "model": match_row['Model'],
-                "status": "corrected"
-            }
-
-    return False, {"status": "not_in_db", "message": f"Unsupported Vehicle: '{brand} {model}'"}
+    return False, {"status": "not_in_db", "message": f"Unsupported Brand: '{brand}'"}
