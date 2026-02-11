@@ -152,22 +152,42 @@ with tab2:
     # 5. THE ANALYST ENGINE
     # =====================================================
     if all(v_curr.values()) and st.session_state.trigger_analysis:
+        # Hierarchical validation: Resolves Brand first, then Model within that Brand
         is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         
         if not is_valid:
             with st.chat_message("assistant"):
-                st.error(f"### ❌ {result.get('message', 'Unsupported Model')}")
-                if st.button("Clear Invalid Model"):
-                    st.session_state.vehicle_data["Model"] = None
-                    st.session_state.trigger_analysis = False
-                    st.rerun()
+                st.error(f"### ❌ {result.get('message', 'Unsupported Vehicle')}")
+                
+                # Dynamic guidance based on the failure type
+                st.info("How would you like to proceed?")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    if st.button("Edit Model", use_container_width=True):
+                        st.session_state.vehicle_data["Model"] = None
+                        st.session_state.trigger_analysis = False
+                        st.rerun()
+                with c2:
+                    if st.button("Edit Brand", use_container_width=True):
+                        st.session_state.vehicle_data["Brand"] = None
+                        st.session_state.trigger_analysis = False
+                        st.rerun()
+                with c3:
+                    if st.button("Reset All", use_container_width=True):
+                        st.session_state.vehicle_data = {k: None for k in v_curr}
+                        st.session_state.trigger_analysis = False
+                        st.rerun()
             st.stop()
         else:
+            # Sync the UI state with the canonical names found in the lookup
             st.session_state.vehicle_data["Brand"] = result["brand"]
             st.session_state.vehicle_data["Model"] = result["model"]
-            if result["status"] in ["corrected", "valid"] and result["model"] != v_curr["Model"]:
+            
+            # Show a toast if we corrected a typo (e.g., 'Toyta' -> 'Toyota')
+            if result["status"] == "corrected" and result["model"] != v_curr["Model"]:
                 st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
 
+        # Prep variables for analysis
         year = parse_numeric(v_curr["Year"])
         kms = parse_numeric(v_curr["Kilometres"])
         price = parse_numeric(v_curr["Listed Price"])
@@ -182,7 +202,7 @@ with tab2:
                     st.rerun()
             st.stop()
 
-        # PLAUSIBILITY CHECK
+        # PLAUSIBILITY CHECK (Safety first)
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
@@ -222,7 +242,7 @@ with tab2:
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
 
-                    # 2. Run Auditor
+                    # 2. Run Auditor (Self-Correction Layer)
                     with st.spinner("🕵️ Fact-checking AI response..."):
                         audit = call_critic_agent(client, st.session_state.vehicle_data, pred, gap, report)
 
@@ -249,7 +269,7 @@ with tab2:
                     if audit['hallucination_score'] < 0.8:
                         st.caption(f"⚠️ Audit Note: {', '.join(audit['found_hallucinations'])}")
                     
-                    # Update history
+                    # Update history for the chat interface
                     st.session_state.chat_history.append({
                         "role": "assistant", 
                         "content": f"**Verdict: {verdict}**\n\n{report}"
