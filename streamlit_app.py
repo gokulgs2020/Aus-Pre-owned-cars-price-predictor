@@ -222,35 +222,35 @@ with tab2:
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
 
-                # 2. Run Auditor
-                with st.spinner("🕵️ Fact-checking AI response..."):
-                    audit = call_critic_agent(client, st.session_state.vehicle_data, pred, gap, report)
+                    # 2. Run Auditor
+                    with st.spinner("🕵️ Fact-checking AI response..."):
+                        audit = call_critic_agent(client, st.session_state.vehicle_data, pred, gap, report)
 
-                # 3. UI DISPLAY
-                st.markdown(f"### Verdict: :{color}[{verdict}]")
-                st.markdown(report)
-                
-                # --- GREYED OUT AUDIT FOOTER ---
-                st.markdown("---")
-                st.markdown('<p style="color: grey; font-size: 14px; font-weight: bold;">🤖 AI AUDIT METRICS (STRICTNESS: HIGH)</p>', unsafe_allow_html=True)
-                
-                m1, m2, m3 = st.columns(3)
-                with m1:
-                    st.markdown(f'<p style="color: grey; margin-bottom: 0;">Faithfulness</p>', unsafe_allow_html=True)
-                    st.markdown(f'<p style="color: grey; font-size: 24px;">{audit["hallucination_score"]*100:.0f}%</p>', unsafe_allow_html=True)
-                with m2:
-                    st.markdown(f'<p style="color: grey; margin-bottom: 0;">Data Recall</p>', unsafe_allow_html=True)
-                    st.markdown(f'<p style="color: grey; font-size: 24px;">{audit["recall_score"]*100:.0f}%</p>', unsafe_allow_html=True)
-                with m3:
-                    logic_col = "green" if audit['verdict_consistent'] else "red"
-                    st.markdown(f'<p style="color: grey; margin-bottom: 0;">Logic Consistency</p>', unsafe_allow_html=True)
-                    st.markdown(f'<p style="color: {logic_col}; font-size: 24px;">{"PASS" if audit["verdict_consistent"] else "FAIL"}</p>', unsafe_allow_html=True)
+                    # 3. UI DISPLAY
+                    st.markdown(f"### Verdict: :{color}[{verdict}]")
+                    st.markdown(report)
+                    
+                    # --- GREYED OUT AUDIT FOOTER ---
+                    st.markdown("---")
+                    st.markdown('<p style="color: grey; font-size: 14px; font-weight: bold;">🤖 AI AUDIT METRICS (STRICTNESS: HIGH)</p>', unsafe_allow_html=True)
+                    
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        st.markdown(f'<p style="color: grey; margin-bottom: 0;">Faithfulness</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p style="color: grey; font-size: 24px;">{audit["hallucination_score"]*100:.0f}%</p>', unsafe_allow_html=True)
+                    with m2:
+                        st.markdown(f'<p style="color: grey; margin-bottom: 0;">Data Recall</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p style="color: grey; font-size: 24px;">{audit["recall_score"]*100:.0f}%</p>', unsafe_allow_html=True)
+                    with m3:
+                        logic_col = "green" if audit['verdict_consistent'] else "red"
+                        st.markdown(f'<p style="color: grey; margin-bottom: 0;">Logic Consistency</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p style="color: {logic_col}; font-size: 24px;">{"PASS" if audit["verdict_consistent"] else "FAIL"}</p>', unsafe_allow_html=True)
 
-                if audit['hallucination_score'] < 0.8:
-                    st.caption(f"⚠️ Audit Note: {', '.join(audit['found_hallucinations'])}")
-                
-                # Update history
-                st.session_state.chat_history.append({
-                    "role": "assistant", 
-                    "content": f"**Verdict: {verdict}**\n\n{report}"
-                })
+                    if audit['hallucination_score'] < 0.8:
+                        st.caption(f"⚠️ Audit Note: {', '.join(audit['found_hallucinations'])}")
+                    
+                    # Update history
+                    st.session_state.chat_history.append({
+                        "role": "assistant", 
+                        "content": f"**Verdict: {verdict}**\n\n{report}"
+                    })
