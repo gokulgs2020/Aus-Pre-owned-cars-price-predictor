@@ -152,48 +152,49 @@ with tab2:
     # 5. THE ANALYST ENGINE
     # =====================================================
     if all(v_curr.values()) and st.session_state.trigger_analysis:
-        # Hierarchical validation: Resolves Brand first, then Model within that Brand
+        # Step 1: Hierarchical Validation (Brand-First Isolation)
         is_valid, result = validate_model_existence(v_curr["Brand"], v_curr["Model"], brand_model_lookup)
         
         if not is_valid:
             with st.chat_message("assistant"):
                 st.error(f"### ❌ {result.get('message', 'Unsupported Vehicle')}")
                 
-                # Dynamic guidance based on the failure type
-                st.info("How would you like to proceed?")
+                # Targeted guidance based on hierarchical failure
+                st.info("How would you like to fix this details?")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    if st.button("Edit Model", use_container_width=True):
+                    if st.button("Change Model", use_container_width=True, key="btn_fix_mod"):
                         st.session_state.vehicle_data["Model"] = None
                         st.session_state.trigger_analysis = False
                         st.rerun()
                 with c2:
-                    if st.button("Edit Brand", use_container_width=True):
+                    if st.button("Change Brand", use_container_width=True, key="btn_fix_br"):
                         st.session_state.vehicle_data["Brand"] = None
                         st.session_state.trigger_analysis = False
                         st.rerun()
                 with c3:
-                    if st.button("Reset All", use_container_width=True):
+                    if st.button("Reset Entry", use_container_width=True, key="btn_fix_all"):
                         st.session_state.vehicle_data = {k: None for k in v_curr}
                         st.session_state.trigger_analysis = False
                         st.rerun()
             st.stop()
         else:
-            # Sync the UI state with the canonical names found in the lookup
+            # Step 2: Sync UI with the 'Ground Truth' from your database
+            # This ensures 'renolt' becomes 'Renault' in your app state
             st.session_state.vehicle_data["Brand"] = result["brand"]
             st.session_state.vehicle_data["Model"] = result["model"]
             
-            # Show a toast if we corrected a typo (e.g., 'Toyta' -> 'Toyota')
-            if result["status"] == "corrected" and result["model"] != v_curr["Model"]:
+            # Show a toast if we auto-fixed a typo (e.g., 'Toyta' -> 'Toyota')
+            if result["status"] == "corrected":
                 st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
 
-        # Prep variables for analysis
+        # Prepare variables for market analysis
         year = parse_numeric(v_curr["Year"])
         kms = parse_numeric(v_curr["Kilometres"])
         price = parse_numeric(v_curr["Listed Price"])
         brand, model = str(v_curr["Brand"]), str(v_curr["Model"])
 
-        # TEMPORAL GUARDRAIL
+        # --- GUARDRAIL: TEMPORAL ---
         if year and year > 2026:
             with st.chat_message("assistant"):
                 st.error(f"📅 **Year Error:** You entered **{year}**, but the current year is **2026**.")
@@ -202,11 +203,11 @@ with tab2:
                     st.rerun()
             st.stop()
 
-        # PLAUSIBILITY CHECK (Safety first)
+        # --- GUARDRAIL: PLAUSIBILITY ---
         warnings = validate_data_plausibility(brand, model, year, kms, price)
         if warnings and not st.session_state.confirmed_plausibility:
             with st.chat_message("assistant"):
-                st.warning("### 🛑 Check Details")
+                st.warning("### 🛑 Plausibility Check")
                 for w in warnings: st.write(f"- {w}")
                 col_y, col_n = st.columns(2)
                 with col_y:
@@ -215,19 +216,21 @@ with tab2:
                         st.rerun()
                 with col_n:
                     if st.button("No, let me fix them", use_container_width=True):
+                        # Reset year to trigger re-entry loop
                         st.session_state.vehicle_data["Year"] = None
                         st.rerun()
             st.stop()
 
-        # 4. FINAL REPORT & CRITIC
+        # --- FINAL REPORT & AUDIT ---
         with st.chat_message("assistant"):
             st.session_state.trigger_analysis = False 
             new_p = lookup_new_price(brand, model, bm, b)
             
             if np.isnan(new_p):
-                st.warning(f"⚠️ Market price not found for {brand} {model}.")
+                st.warning(f"⚠️ Market pricing not found for {brand} {model}.")
             else:
                 with st.spinner(f"Analyzing {brand} {model} Market..."):
+                    # Calculate ML Baseline
                     retention = calculate_market_prediction(pipe, brand, model, year, kms)
                     pred = retention * new_p
                     gap = ((price - pred) / pred) * 100 if price else 0
@@ -237,20 +240,20 @@ with tab2:
                     elif gap < -5: verdict, color = "BARGAIN", "green"
                     elif gap > 5: verdict, color = "OVER PRICED!", "orange"
 
-                    # 1. Generate Report
+                    # 1. Analyst Agent (Narrative Generation)
                     m_ctx = get_market_sources_for_brand(brand)
                     rep_p = get_report_prompt(year, brand, model, kms, price, pred, gap, verdict, m_ctx)
                     report = call_llm_extractor(client, SYSTEM_ANALYST, rep_p, temperature=0.7)
 
-                    # 2. Run Auditor (Self-Correction Layer)
-                    with st.spinner("🕵️ Fact-checking AI response..."):
+                    # 2. Critic Agent (Logic & Hallucination Audit)
+                    with st.spinner("🕵️ AI Auditor is checking report consistency..."):
                         audit = call_critic_agent(client, st.session_state.vehicle_data, pred, gap, report)
 
-                    # 3. UI DISPLAY
+                    # 3. UI Display
                     st.markdown(f"### Verdict: :{color}[{verdict}]")
                     st.markdown(report)
                     
-                    # --- GREYED OUT AUDIT FOOTER ---
+                    # --- AI AUDIT METRICS FOOTER ---
                     st.markdown("---")
                     st.markdown('<p style="color: grey; font-size: 14px; font-weight: bold;">🤖 AI AUDIT METRICS (STRICTNESS: HIGH)</p>', unsafe_allow_html=True)
                     
@@ -269,7 +272,7 @@ with tab2:
                     if audit['hallucination_score'] < 0.8:
                         st.caption(f"⚠️ Audit Note: {', '.join(audit['found_hallucinations'])}")
                     
-                    # Update history for the chat interface
+                    # Persist to chat history
                     st.session_state.chat_history.append({
                         "role": "assistant", 
                         "content": f"**Verdict: {verdict}**\n\n{report}"
