@@ -178,14 +178,24 @@ if all(v_curr.values()) and st.session_state.trigger_analysis:
                     st.rerun()
         st.stop()
     
-    # --- PHASE 2: CANONICAL SYNC ---
-    # Overwrites user/LLM typos with "Ground Truth" from the database
-    st.session_state.vehicle_data["Brand"] = result["brand"]
-    st.session_state.vehicle_data["Model"] = result["model"]
-    if result["status"] == "corrected":
-        st.toast(f"🤖 Resolved to {result['brand']} {result['model']}", icon="✅")
+    # --- PHASE 2: CANONICAL SYNC (UI REFRESH) ---
+    # Detect if the validator found a better name (e.g., "Kluger" vs "mrkluger")
+    brand_canonical = result.get("brand")
+    model_canonical = result.get("model")
 
-    # Local variables for calculation
+    if brand_canonical != v_curr["Brand"] or model_canonical != v_curr["Model"]:
+        # Update the session state with the Ground Truth
+        st.session_state.vehicle_data["Brand"] = brand_canonical
+        st.session_state.vehicle_data["Model"] = model_canonical
+        
+        if result["status"] == "corrected":
+            st.toast(f"🤖 Resolved to {brand_canonical} {model_canonical}", icon="✅")
+        
+        # IMPORTANT: We rerun immediately. This forces the metric columns at the top 
+        # of your script to re-render using the clean "Kluger" name.
+        st.rerun()
+
+    # Local variables for calculation (Now guaranteed to be the clean names)
     year = parse_numeric(v_curr["Year"])
     kms = parse_numeric(v_curr["Kilometres"])
     price = parse_numeric(v_curr["Listed Price"])
